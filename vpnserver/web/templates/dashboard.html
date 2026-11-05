@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Übersicht{% endblock %}
+{% block content %}
+<h1>Übersicht</h1>
+{% for w in warnings %}<div class="warnbox">{{ w }}</div>{% endfor %}
+<div class="grid">
+  <div class="panel">
+    <h2>Server</h2>
+    <dl class="kv">
+      <dt>Öffentliche Adresse</dt><dd><code>{{ state.server.public_host or '– nicht gesetzt –' }}</code></dd>
+      <dt>LAN-IP</dt><dd><code>{{ lan_ip }}</code></dd>
+      <dt>Clients</dt><dd>{{ state.clients | length }}</dd>
+      <dt>Heimnetz-Zugriff</dt><dd>{{ 'erlaubt' if state.server.lan_access else 'gesperrt' }}</dd>
+    </dl>
+    <div class="actions"><a class="btn" href="{{ url_for('clients') }}#neu">+ Neuer Client</a></div>
+  </div>
+  <div class="panel">
+    <h2>Verbunden</h2>
+    <div class="stat" id="session-count">{{ sessions | length }}</div>
+    <p class="muted">aktive VPN-Verbindungen</p>
+    <a href="{{ url_for('status_page') }}">Details →</a>
+  </div>
+  <div class="panel">
+    <h2>Dienste</h2>
+    <table>
+      {% for u in units if u.wanted %}
+      <tr><td>{{ u.label }}</td><td><span class="badge {{ 'ok' if u.active == 'active' else 'err' }}">{{ 'läuft' if u.active == 'active' else u.active }}</span></td></tr>
+      {% else %}
+      <tr><td class="muted">Keine Dienste aktiviert.</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Portfreigaben im Router</h2>
+  <p>Damit die VPN-Verbindungen aus dem Internet funktionieren, müssen im Router diese Ports an <code>{{ lan_ip }}</code> weitergeleitet werden:</p>
+  {% include "_forwards.html" %}
+  <details>
+    <summary>Kein Zugriff von außen? Häufige Ursachen</summary>
+    <ul>
+      <li><strong>DS-Lite / CGNAT:</strong> Viele Kabel- und Glasfaseranschlüsse haben keine eigene öffentliche IPv4-Adresse. Portfreigaben für IPv4 sind dann nicht möglich. Lösung: beim Provider eine öffentliche IPv4 (bzw. „Dual-Stack“) anfragen.</li>
+      <li><strong>Test aus dem eigenen WLAN:</strong> Viele Router unterstützen kein „NAT-Loopback“. Testen Sie über das Mobilfunknetz (WLAN am Handy aus).</li>
+      <li><strong>Falsche Adresse:</strong> Die öffentliche Adresse (oben) muss auf Ihre aktuelle öffentliche IP zeigen.</li>
+      <li><strong>Doppel-NAT:</strong> Hängt Ihr Router hinter einem weiteren Router/Modem, müssen die Ports auf beiden weitergeleitet werden.</li>
+    </ul>
+  </details>
+</div>
+{% endblock %}

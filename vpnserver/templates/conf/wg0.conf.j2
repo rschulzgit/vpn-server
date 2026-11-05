@@ -1,0 +1,16 @@
+# Verwaltet von VPN-Server - manuelle Aenderungen werden ueberschrieben.
+[Interface]
+Address = {{ server_ip }}/{{ prefixlen }}
+ListenPort = {{ wg.port }}
+PrivateKey = {{ wg.privkey }}
+{% if wg.mtu %}
+MTU = {{ wg.mtu }}
+{% endif %}
+{% for c in clients %}
+
+[Peer]
+# {{ c.name }}
+PublicKey = {{ c.wg.pubkey }}
+PresharedKey = {{ c.wg.psk }}
+AllowedIPs = {{ c.wg.ip }}/32
+{% endfor %}

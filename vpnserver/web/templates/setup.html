@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf %}
+{% set hide_nav = True %}
+{% block title %}Einrichtung{% endblock %}
+{% block content %}
+<div style="max-width:720px;margin:0 auto">
+<h1>Einrichtung</h1>
+{% if step == 'password' %}
+<div class="panel">
+  <h2>Schritt 1 von 2: Neues Administrator-Passwort</h2>
+  <p>Bitte ersetzen Sie das Initialpasswort durch ein eigenes, sicheres Passwort (mindestens 10 Zeichen).</p>
+  <form method="post">
+    {{ csrf() }}
+    <label for="password">Neues Passwort</label>
+    <input id="password" name="password" type="password" autocomplete="new-password" required minlength="10">
+    <label for="password2">Passwort wiederholen</label>
+    <input id="password2" name="password2" type="password" autocomplete="new-password" required minlength="10">
+    <label class="inline"><input type="checkbox" name="system_too" value="1" checked> Auch als Passwort für Konsole/SSH (Benutzer <code>vpnadmin</code>) setzen</label>
+    <div class="actions"><button class="btn" type="submit">Weiter</button></div>
+  </form>
+</div>
+{% else %}
+<div class="panel">
+  <h2>Schritt 2 von 2: Erreichbarkeit aus dem Internet</h2>
+  <p>Unter welcher Adresse ist Ihr Anschluss aus dem Internet erreichbar? Diese Adresse wird in alle VPN-Profile eingetragen.</p>
+  <div class="infobox">
+    <strong>Empfehlung:</strong> Verwenden Sie einen <strong>DynDNS-Namen</strong> (z.&nbsp;B. von MyFRITZ!, DuckDNS, dynv6, IPv64 oder No-IP), da sich die öffentliche IP privater Anschlüsse regelmäßig ändert. Einen DynDNS-Dienst können Sie im Router oder später unter <em>Einstellungen → DynDNS</em> einrichten.
+  </div>
+  <form method="post">
+    {{ csrf() }}
+    <label for="public_host">Öffentliche Adresse (DNS-Name oder IP)</label>
+    <div class="row">
+      <input id="public_host" name="public_host" type="text" style="flex:1" value="{{ state.server.public_host }}" placeholder="z. B. meinvpn.duckdns.org" required>
+      <button type="button" class="btn secondary" data-detect-ip="public_host">Öffentliche IP ermitteln</button>
+    </div>
+    <label for="dns">DNS-Server für VPN-Clients</label>
+    <input id="dns" name="dns" type="text" value="{{ state.server.dns | join(', ') }}" placeholder="z. B. 192.168.178.1 oder 1.1.1.1, 9.9.9.9">
+    <p class="hint">Voreingestellt ist der DNS-Server Ihres Netzwerks (meist der Router) – damit funktionieren auch lokale Namen wie <code>fritz.box</code>. Alternativ öffentliche Server wie <code>1.1.1.1, 9.9.9.9</code>.</p>
+    <div class="actions"><button class="btn" type="submit">Einrichtung abschließen</button></div>
+  </form>
+</div>
+<div class="panel">
+  <h2>Danach: Portfreigaben im Router</h2>
+  <p>Leiten Sie im Router folgende Ports an diesen Server (<code>{{ lan_ip }}</code>) weiter:</p>
+  {% include "_forwards.html" %}
+</div>
+{% endif %}
+</div>
+{% endblock %}

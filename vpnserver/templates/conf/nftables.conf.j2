@@ -1,0 +1,137 @@
+#!/usr/sbin/nft -f
+# Verwaltet von VPN-Server - manuelle Aenderungen werden ueberschrieben.
+# Eigene Regeln koennen in /etc/vpn-server/nftables-local.nft ergaenzt werden.
+
+flush ruleset
+
+table inet vpnserver {
+    set vpn_nets {
+        type ipv4_addr
+        flags interval
+        elements = { {{ vpn_nets | join(', ') }} }
+    }
+
+    set private_nets {
+        type ipv4_addr
+        flags interval
+        elements = { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 100.64.0.0/10 }
+    }
+
+    set private_nets6 {
+        type ipv6_addr
+        flags interval
+        elements = { fe80::/10, fc00::/7 }
+    }
+
+    chain input {
+        type filter hook input priority filter; policy drop;
+
+        ct state established,related accept
+        ct state invalid drop
+        iif "lo" accept
+
+        # ICMP / ICMPv6 (Path-MTU, Neighbor Discovery, Ping)
+        ip protocol icmp icmp type { echo-request, destination-unreachable, time-exceeded, parameter-problem } limit rate 20/second accept
+        ip6 nexthdr ipv6-icmp accept
+        # DHCPv6-Client
+        ip6 daddr fe80::/64 udp dport 546 accept
+
+        # ---- VPN-Dienste ----
+{% if wireguard %}
+        udp dport {{ wg_port }} accept comment "WireGuard"
+{% endif %}
+{% if openvpn_udp %}
+        udp dport {{ ovpn_udp_port }} accept comment "OpenVPN UDP"
+{% endif %}
+{% if openvpn_tcp %}
+        tcp dport {{ ovpn_tcp_port }} accept comment "OpenVPN TCP"
+{% endif %}
+{% if ipsec %}
+        udp dport { 500, 4500 } accept comment "IPsec IKE/NAT-T"
+        meta l4proto esp accept comment "IPsec ESP"
+{% endif %}
+{% if l2tp %}
+        udp dport 1701 meta secpath exists accept comment "L2TP nur ueber IPsec"
+{% endif %}
+{% if sstp %}
+        tcp dport {{ sstp_port }} accept comment "SSTP"
+{% endif %}
+{% if openconnect %}
+        tcp dport {{ oc_port }} accept comment "OpenConnect TCP"
+        udp dport {{ oc_port }} accept comment "OpenConnect DTLS"
+{% endif %}
+{% if pptp %}
+        tcp dport 1723 accept comment "PPTP"
+        meta l4proto gre accept comment "PPTP GRE"
+{% endif %}
+{% if letsencrypt %}
+        tcp dport 80 accept comment "Let's Encrypt HTTP-01"
+{% endif %}
+
+        # ---- Verwaltung (Weboberflaeche, SSH) ----
+{% if webui_public %}
+        tcp dport {{ webui_port }} accept comment "Weboberflaeche (oeffentlich)"
+{% else %}
+        tcp dport {{ webui_port }} ip saddr @private_nets accept comment "Weboberflaeche (LAN)"
+        tcp dport {{ webui_port }} ip saddr @vpn_nets accept comment "Weboberflaeche (VPN)"
+        tcp dport {{ webui_port }} ip6 saddr @private_nets6 accept
+{% endif %}
+{% if ssh_public %}
+        tcp dport 22 accept comment "SSH (oeffentlich)"
+{% else %}
+        tcp dport 22 ip saddr @private_nets accept comment "SSH (LAN)"
+        tcp dport 22 ip saddr @vpn_nets accept comment "SSH (VPN)"
+        tcp dport 22 ip6 saddr @private_nets6 accept
+{% endif %}
+        # mDNS (vpn-server.local)
+        udp dport 5353 ip saddr @private_nets accept
+        udp dport 5353 ip6 saddr @private_nets6 accept
+        # DNS-Anfragen von VPN-Clients an den Server selbst
+        ip saddr @vpn_nets udp dport 53 accept
+        ip saddr @vpn_nets tcp dport 53 accept
+
+        include "/etc/vpn-server/nftables-local-input.nft"
+    }
+
+    chain forward {
+        type filter hook forward priority filter; policy drop;
+
+        # MSS an die Pfad-MTU anpassen (verhindert haengende Verbindungen)
+        tcp flags syn / syn,rst tcp option maxseg size set rt mtu
+{% if ipsec %}
+        ip saddr {{ ipsec_net }} tcp flags syn / syn,rst tcp option maxseg size 1361-1536 tcp option maxseg size set 1360
+        ip daddr {{ ipsec_net }} tcp flags syn / syn,rst tcp option maxseg size 1361-1536 tcp option maxseg size set 1360
+{% endif %}
+
+        ct state established,related accept
+        ct state invalid drop
+
+        # VPN-Client <-> VPN-Client
+{% if client_to_client %}
+        ip saddr @vpn_nets ip daddr @vpn_nets accept
+{% else %}
+        ip saddr @vpn_nets ip daddr @vpn_nets drop
+{% endif %}
+
+        # VPN-Clients -> Heimnetz / private Netze
+{% for d in dns_private %}
+        ip saddr @vpn_nets ip daddr {{ d }} udp dport 53 accept
+        ip saddr @vpn_nets ip daddr {{ d }} tcp dport 53 accept
+{% endfor %}
+{% if lan_access %}
+        ip saddr @vpn_nets ip daddr @private_nets accept
+{% else %}
+        ip saddr @vpn_nets ip daddr @private_nets drop
+{% endif %}
+
+        # VPN-Clients -> Internet
+        ip saddr @vpn_nets accept
+
+        include "/etc/vpn-server/nftables-local-forward.nft"
+    }
+
+    chain postrouting {
+        type nat hook postrouting priority srcnat; policy accept;
+        ip saddr @vpn_nets ip daddr != @vpn_nets masquerade
+    }
+}

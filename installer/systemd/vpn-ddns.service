@@ -1,0 +1,8 @@
+[Unit]
+Description=VPN-Server DynDNS-Aktualisierung
+After=network-online.target
+ConditionPathExists=/etc/vpn-server/state.json
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/vpnctl ddns --quiet

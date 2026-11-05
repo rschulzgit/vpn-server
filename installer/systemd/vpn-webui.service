@@ -1,0 +1,17 @@
+[Unit]
+Description=VPN-Server Weboberflaeche
+After=network-online.target vpn-firstboot.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=PYTHONPATH=/opt/vpn-server
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStartPre=-/usr/local/sbin/vpnctl apply --quiet --no-webui-restart
+ExecStart=/usr/bin/python3 -m vpnserver.web.serve
+Restart=always
+RestartSec=3
+TimeoutStartSec=180
+
+[Install]
+WantedBy=multi-user.target

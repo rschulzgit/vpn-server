@@ -1,0 +1,12 @@
+{% set fw = port_forwards(state) %}
+<div class="table-wrap"><table>
+  <thead><tr><th>Dienst</th><th>Protokoll</th><th>Port (extern = intern)</th><th>Ziel</th></tr></thead>
+  <tbody>
+  {% for f in fw %}
+    <tr><td>{{ f.label }}</td><td><span class="badge">{{ f.proto }}</span></td><td><code>{{ f.port }}</code></td><td><code>{{ lan_ip }}</code></td></tr>
+  {% else %}
+    <tr><td colspan="4" class="muted">Keine Protokolle aktiviert.</td></tr>
+  {% endfor %}
+  </tbody>
+</table></div>
+<p class="hint">Port 1701 (L2TP) darf <strong>nicht</strong> freigegeben werden – L2TP läuft verschlüsselt innerhalb von IPsec (UDP 500/4500). Bei der FRITZ!Box: <em>Internet → Freigaben → Portfreigaben → Gerät für Freigaben hinzufügen</em> und für jede Zeile eine Freigabe anlegen. Geben Sie dem Server im Router zudem immer dieselbe IP-Adresse (DHCP-Reservierung).</p>

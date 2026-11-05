@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Status{% endblock %}
+{% block content %}
+<h1>Status</h1>
+<div class="panel">
+  <h2>Verbundene Clients (<span id="session-count">{{ sessions | length }}</span>)</h2>
+  <div class="table-wrap"><table id="live-sessions">
+    <thead><tr><th>Client</th><th>Protokoll</th><th>VPN-IP</th><th>Von</th><th>Empfangen / Gesendet</th><th>Seit</th></tr></thead>
+    <tbody>
+    {% for s in sessions %}
+      <tr><td>{{ s.user }}</td><td>{{ s.proto }}</td><td>{{ s.vip }}</td><td>{{ s.remote }}</td><td>{{ s.rx }} / {{ s.tx }}</td><td>{{ s.since }}</td></tr>
+    {% else %}
+      <tr><td colspan="6" class="muted">Keine Verbindungen.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  <p class="hint">Wird alle 10 Sekunden aktualisiert.</p>
+</div>
+<div class="panel">
+  <h2>Dienste</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Dienst</th><th>systemd-Unit</th><th>Soll</th><th>Ist</th><th></th></tr></thead>
+    <tbody>
+    {% for u in units %}
+      <tr>
+        <td>{{ u.label }}</td><td><code>{{ u.unit }}</code></td>
+        <td>{{ 'aktiv' if u.wanted else 'aus' }}</td>
+        <td><span class="badge {{ 'ok' if u.ok and u.active == 'active' else ('err' if not u.ok else '') }}">{{ u.active }}</span></td>
+        <td><a class="btn small secondary" href="{{ url_for('status_page', log=u.unit) }}#log">Protokoll</a></td>
+      </tr>
+    {% endfor %}
+      <tr><td>Weboberfläche</td><td><code>vpn-webui.service</code></td><td>aktiv</td><td><span class="badge ok">active</span></td>
+        <td><a class="btn small secondary" href="{{ url_for('status_page', log='vpn-webui.service') }}#log">Protokoll</a></td></tr>
+    </tbody>
+  </table></div>
+</div>
+{% if logtext is not none %}
+<div class="panel" id="log">
+  <h2>Protokoll: <code>{{ log_unit }}</code></h2>
+  <pre>{{ logtext }}</pre>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,4 @@
+{% macro kv(label, value, mono=True) -%}
+<dt>{{ label }}</dt><dd>{% if mono %}<code>{{ value }}</code>{% else %}{{ value }}{% endif %}{% if value %}<button type="button" class="copy" data-copy="{{ value }}">kopieren</button>{% endif %}</dd>
+{%- endmacro %}
+{% macro csrf() -%}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{%- endmacro %}

@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf %}
+{% block title %}System{% endblock %}
+{% block content %}
+<h1>System</h1>
+<div class="grid">
+  <div class="panel">
+    <h2>Information</h2>
+    <dl class="kv">
+      <dt>Version</dt><dd>VPN-Server {{ version }}</dd>
+      <dt>Betriebssystem</dt><dd>{{ os_name }}</dd>
+      <dt>Hostname</dt><dd><code>{{ hostname }}</code></dd>
+      <dt>Laufzeit</dt><dd>{{ uptime }}</dd>
+      <dt>LAN</dt><dd><code>{{ net.ip }}/{{ net.prefixlen }}</code> über <code>{{ net.dev }}</code></dd>
+      <dt>Gateway</dt><dd><code>{{ net.gateway }}</code></dd>
+    </dl>
+    {% if reboot %}<div class="warnbox">Ein Neustart ist erforderlich, um Updates abzuschließen.</div>{% endif %}
+    <div class="actions">
+      <form method="post" class="inline-form" data-confirm="Server jetzt neu starten? Alle VPN-Verbindungen werden getrennt.">{{ csrf() }}<input type="hidden" name="action" value="reboot"><button class="btn secondary" type="submit">Neustart</button></form>
+      <form method="post" class="inline-form" data-confirm="Server herunterfahren? Er muss danach manuell eingeschaltet werden.">{{ csrf() }}<input type="hidden" name="action" value="poweroff"><button class="btn danger" type="submit">Herunterfahren</button></form>
+    </div>
+  </div>
+  <div class="panel">
+    <h2>Administrator-Passwort</h2>
+    <form method="post">{{ csrf() }}<input type="hidden" name="action" value="password">
+      <label for="current">Aktuelles Passwort</label><input id="current" name="current" type="password" autocomplete="current-password" required>
+      <label for="password">Neues Passwort</label><input id="password" name="password" type="password" autocomplete="new-password" minlength="10" required>
+      <label for="password2">Wiederholen</label><input id="password2" name="password2" type="password" autocomplete="new-password" minlength="10" required>
+      <label class="inline"><input type="checkbox" name="system_too" value="1" checked> Auch für Konsole/SSH (<code>vpnadmin</code>)</label>
+      <div class="actions"><button class="btn" type="submit">Ändern</button></div>
+    </form>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Netzwerk</h2>
+  {% if net.manager == 'ifupdown' %}
+  <p>Der Server sollte immer dieselbe LAN-Adresse haben, damit die Portfreigaben funktionieren. Am einfachsten: im Router eine <strong>DHCP-Reservierung</strong> einrichten. Alternativ hier eine feste Adresse vergeben.</p>
+  <form method="post" data-confirm="Netzwerkeinstellungen übernehmen? Bei falschen Werten ist der Server nur noch über die Konsole erreichbar.">{{ csrf() }}
+    <input type="hidden" name="action" value="network"><input type="hidden" name="dev" value="{{ net.dev }}">
+    <div class="grid-2">
+      <div><label for="net-method">Modus</label>
+        <select id="net-method" name="method"><option value="dhcp" {{ 'selected' if net.method == 'dhcp' }}>DHCP (automatisch)</option><option value="static" {{ 'selected' if net.method == 'static' }}>Statisch</option></select></div>
+      <div data-static><label>IP-Adresse</label><input type="text" name="address" value="{{ net.ip }}"></div>
+      <div data-static><label>Präfixlänge</label><input type="number" name="prefixlen" value="{{ net.prefixlen }}" min="8" max="30"></div>
+      <div data-static><label>Gateway (Router)</label><input type="text" name="gateway" value="{{ net.gateway }}"></div>
+      <div data-static><label>DNS-Server</label><input type="text" name="dns" value="{{ net.dns | join(', ') }}"></div>
+    </div>
+    <div class="actions"><button class="btn" type="submit">Übernehmen</button></div>
+  </form>
+  {% else %}
+  <p>Bitte richten Sie im Router eine <strong>DHCP-Reservierung</strong> für diesen Server ein (aktuell <code>{{ net.ip }}</code>).</p>
+  {% endif %}
+</div>
+
+<div class="grid">
+  <div class="panel">
+    <h2>Updates</h2>
+    <p>Sicherheitsupdates werden automatisch täglich installiert. Hier können Sie alle verfügbaren Updates sofort einspielen.</p>
+    <form method="post">{{ csrf() }}<input type="hidden" name="action" value="update">
+      <button class="btn" type="submit" {{ 'disabled' if update_running }}>{{ 'Update läuft …' if update_running else 'Jetzt aktualisieren' }}</button></form>
+    {% if update_log %}<details {{ 'open' if update_running }}><summary>Protokoll</summary><pre>{{ update_log }}</pre></details>{% endif %}
+  </div>
+  <div class="panel">
+    <h2>Sicherung</h2>
+    <p>Enthält alle Einstellungen, Clients, Schlüssel und Zertifikate. <strong>Vertraulich aufbewahren!</strong> Nach einer Neuinstallation können so alle Clients ohne neue Profile weiterverwendet werden.</p>
+    <a class="btn" href="{{ url_for('backup') }}">Sicherung herunterladen</a>
+    <form method="post" enctype="multipart/form-data" data-confirm="Sicherung wiederherstellen? Die aktuelle Konfiguration wird ersetzt.">{{ csrf() }}
+      <input type="hidden" name="action" value="restore">
+      <label for="backup">Wiederherstellen</label>
+      <input id="backup" name="backup" type="file" accept=".tar.gz,.tgz,application/gzip" required>
+      <div class="actions"><button class="btn secondary" type="submit">Wiederherstellen</button></div>
+    </form>
+  </div>
+</div>
+{% endblock %}

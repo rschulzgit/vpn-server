@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf %}
+{% block title %}Clients{% endblock %}
+{% block content %}
+<h1>Clients</h1>
+<div class="panel">
+  <p class="muted">Legen Sie für jedes Gerät (Handy, Laptop, …) einen eigenen Client an. Jeder Client erhält automatisch Zugangsdaten für alle aktivierten Protokolle.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Name</th><th>Status</th><th>Notiz</th><th>WireGuard-IP</th><th>Tunnel</th><th></th></tr></thead>
+    <tbody>
+    {% for c in state.clients.values() %}
+      <tr>
+        <td><a href="{{ url_for('client', name=c.name) }}"><strong>{{ c.name }}</strong></a></td>
+        <td>
+          {% if not c.enabled %}<span class="badge err">gesperrt</span>
+          {% elif c.name in online %}<span class="badge ok">verbunden</span>
+          {% else %}<span class="badge">getrennt</span>{% endif %}
+        </td>
+        <td>{{ c.note }}</td>
+        <td><code>{{ c.wg.ip }}</code></td>
+        <td>{{ 'gesamter Verkehr' if c.full_tunnel else 'nur Heimnetz' }}</td>
+        <td><a class="btn small secondary" href="{{ url_for('client', name=c.name) }}">Profile &amp; Anleitung</a></td>
+      </tr>
+    {% else %}
+      <tr><td colspan="6" class="muted">Noch keine Clients angelegt.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</div>
+<div class="panel" id="neu">
+  <h2>Neuer Client</h2>
+  <form method="post">
+    {{ csrf() }}
+    <div class="grid-2">
+      <div>
+        <label for="name">Name (Gerät)</label>
+        <input id="name" name="name" type="text" required pattern="[a-zA-Z0-9][a-zA-Z0-9\-]{0,30}" placeholder="z. B. max-handy" autocomplete="off">
+        <p class="hint">Kleinbuchstaben, Ziffern und Bindestrich. Dient auch als Benutzername.</p>
+      </div>
+      <div>
+        <label for="note">Notiz (optional)</label>
+        <input id="note" name="note" type="text" maxlength="100" placeholder="z. B. iPhone von Max">
+      </div>
+      <div>
+        <label for="password">Passwort (optional)</label>
+        <input id="password" name="password" type="text" autocomplete="off" placeholder="leer = sicheres Passwort erzeugen">
+        <p class="hint">Für Protokolle mit Benutzername/Passwort (IKEv2-EAP, L2TP, SSTP, OpenConnect, Cisco IPsec).</p>
+      </div>
+      <div>
+        <label for="tunnel">Welcher Verkehr läuft über das VPN? (WireGuard/OpenVPN)</label>
+        <select id="tunnel" name="tunnel">
+          <option value="full" selected>Gesamter Internetverkehr (empfohlen unterwegs)</option>
+          <option value="split">Nur Zugriff aufs Heimnetz (Split-Tunnel)</option>
+        </select>
+      </div>
+    </div>
+    <div class="actions"><button class="btn" type="submit">Client anlegen</button></div>
+  </form>
+</div>
+{% endblock %}

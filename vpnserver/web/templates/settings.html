@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf, kv %}
+{% block title %}Einstellungen{% endblock %}
+{% block content %}
+<h1>Einstellungen</h1>
+{% set pr = state.proto %}
+
+<div class="panel" id="general">
+  <h2>Allgemein</h2>
+  <form method="post">{{ csrf() }}<input type="hidden" name="section" value="general">
+    <div class="grid-2">
+      <div>
+        <label for="public_host">Öffentliche Adresse (DNS-Name oder IP)</label>
+        <div class="row"><input id="public_host" name="public_host" type="text" style="flex:1" value="{{ state.server.public_host }}" required>
+          <button type="button" class="btn secondary" data-detect-ip="public_host">IP ermitteln</button></div>
+        <p class="hint">Wird in alle Profile eingetragen. Nach einer Änderung müssen die Profile neu verteilt werden.</p>
+      </div>
+      <div>
+        <label for="name">Anzeigename des Servers</label>
+        <input id="name" name="name" type="text" value="{{ state.server.name }}" maxlength="40">
+        <p class="hint">Erscheint als Verbindungsname in den Profilen.</p>
+      </div>
+      <div>
+        <label for="dns">DNS-Server für VPN-Clients</label>
+        <input id="dns" name="dns" type="text" value="{{ state.server.dns | join(', ') }}" placeholder="1.1.1.1, 9.9.9.9">
+        <p class="hint">Kommagetrennt. Leer = 1.1.1.1, 9.9.9.9.</p>
+      </div>
+      <div>
+        <label>Zugriff</label>
+        <label class="inline"><input type="checkbox" name="lan_access" value="1" {{ 'checked' if state.server.lan_access }}> VPN-Clients dürfen auf das Heimnetz zugreifen</label>
+        <label class="inline"><input type="checkbox" name="client_to_client" value="1" {{ 'checked' if state.server.client_to_client }}> VPN-Clients dürfen sich gegenseitig erreichen</label>
+        <label class="inline"><input type="checkbox" name="webui_public" value="1" {{ 'checked' if state.server.webui_public }}> Weboberfläche aus dem Internet erreichbar <span class="badge warn">nicht empfohlen</span></label>
+        <label class="inline"><input type="checkbox" name="ssh_public" value="1" {{ 'checked' if state.server.ssh_public }}> SSH aus dem Internet erreichbar <span class="badge warn">nicht empfohlen</span></label>
+        <p class="hint">Ohne diese Optionen sind Weboberfläche und SSH nur aus dem Heimnetz und über VPN erreichbar.</p>
+      </div>
+    </div>
+    <div class="actions"><button class="btn" type="submit">Speichern</button></div>
+  </form>
+</div>
+
+<div class="panel" id="protocols">
+  <h2>Protokolle &amp; Ports</h2>
+  <form method="post">{{ csrf() }}<input type="hidden" name="section" value="protocols">
+    <div class="table-wrap"><table>
+      <thead><tr><th>Aktiv</th><th>Protokoll</th><th>Port(s)</th><th>Hinweis</th></tr></thead>
+      <tbody>
+        <tr><td><input type="checkbox" name="wireguard_enabled" value="1" {{ 'checked' if pr.wireguard.enabled }}></td><td>WireGuard</td>
+          <td>UDP <input type="number" name="wireguard_port" value="{{ pr.wireguard.port }}" min="1" max="65535" style="width:7rem"></td><td>empfohlen</td></tr>
+        <tr><td><input type="checkbox" name="openvpn_enabled" value="1" {{ 'checked' if pr.openvpn.enabled }}></td><td>OpenVPN</td>
+          <td><label class="inline"><input type="checkbox" name="openvpn_udp" value="1" {{ 'checked' if pr.openvpn.udp }}> UDP <input type="number" name="openvpn_udp_port" value="{{ pr.openvpn.udp_port }}" style="width:7rem"></label>
+              <label class="inline"><input type="checkbox" name="openvpn_tcp" value="1" {{ 'checked' if pr.openvpn.tcp }}> TCP <input type="number" name="openvpn_tcp_port" value="{{ pr.openvpn.tcp_port }}" style="width:7rem"></label></td><td></td></tr>
+        <tr><td><input type="checkbox" name="ikev2_enabled" value="1" {{ 'checked' if pr.ikev2.enabled }}></td><td>IKEv2/IPsec</td><td>UDP 500, 4500</td><td>Android, iOS, macOS, Windows ohne App</td></tr>
+        <tr><td><input type="checkbox" name="l2tp_enabled" value="1" {{ 'checked' if pr.l2tp.enabled }}></td><td>L2TP/IPsec</td><td>UDP 500, 4500</td><td>älter</td></tr>
+        <tr><td><input type="checkbox" name="ikev1_xauth_enabled" value="1" {{ 'checked' if pr.ikev1_xauth.enabled }}></td><td>Cisco IPsec (IKEv1 XAuth)</td><td>UDP 500, 4500</td><td>iOS/macOS „IPsec“</td></tr>
+        <tr><td><input type="checkbox" name="sstp_enabled" value="1" {{ 'checked' if pr.sstp.enabled }}></td><td>SSTP</td>
+          <td>TCP <input type="number" name="sstp_port" value="{{ pr.sstp.port }}" style="width:7rem"></td><td>Windows; 443 empfohlen</td></tr>
+        <tr><td><input type="checkbox" name="openconnect_enabled" value="1" {{ 'checked' if pr.openconnect.enabled }}></td><td>OpenConnect / AnyConnect</td>
+          <td>TCP+UDP <input type="number" name="openconnect_port" value="{{ pr.openconnect.port }}" style="width:7rem"></td><td></td></tr>
+        <tr><td><input type="checkbox" name="pptp_enabled" value="1" {{ 'checked' if pr.pptp.enabled }}></td><td>PPTP</td><td>TCP 1723 + GRE</td><td><span class="badge err">unsicher</span></td></tr>
+      </tbody>
+    </table></div>
+    <details>
+      <summary>Erweitert: Adressbereiche der VPN-Clients</summary>
+      <p class="hint">Nur ändern, wenn sich die Bereiche mit Ihrem Heimnetz überschneiden. Nach einer Änderung des WireGuard-Bereichs müssen alle WireGuard-Profile neu verteilt werden.</p>
+      <div class="grid-2">
+        <div><label>WireGuard</label><input type="text" name="wireguard_subnet" value="{{ pr.wireguard.subnet }}"></div>
+        <div><label>WireGuard-MTU (leer = automatisch)</label><input type="text" name="wireguard_mtu" value="{{ pr.wireguard.mtu or '' }}" placeholder="z. B. 1380"></div>
+        <div><label>OpenVPN UDP</label><input type="text" name="openvpn_udp_subnet" value="{{ pr.openvpn.udp_subnet }}"></div>
+        <div><label>OpenVPN TCP</label><input type="text" name="openvpn_tcp_subnet" value="{{ pr.openvpn.tcp_subnet }}"></div>
+        <div><label>IPsec (IKEv2, Cisco IPsec)</label><input type="text" name="ikev2_subnet" value="{{ pr.ikev2.subnet }}"></div>
+        <div><label>PPP (L2TP, SSTP, PPTP)</label><input type="text" name="ppp_subnet" value="{{ pr.ppp.subnet }}"></div>
+        <div><label>OpenConnect</label><input type="text" name="openconnect_subnet" value="{{ pr.openconnect.subnet }}"></div>
+      </div>
+    </details>
+    <div class="actions"><button class="btn" type="submit">Speichern</button></div>
+  </form>
+</div>
+
+<div class="panel" id="ipsec">
+  <h2>IPsec-PSK (L2TP/IPsec und Cisco IPsec)</h2>
+  <p>Gemeinsamer Schlüssel für IKEv1-Verbindungen. IKEv2 nutzt pro Client eigene Schlüssel.</p>
+  <form method="post">{{ csrf() }}<input type="hidden" name="section" value="ipsec">
+    <label for="ipsec_psk">Pre-Shared Key</label>
+    <div class="row"><input id="ipsec_psk" name="ipsec_psk" type="text" style="flex:1" value="{{ pr.ipsec_psk }}">
+      <button type="button" class="copy" data-target="ipsec_psk">kopieren</button></div>
+    <div class="actions">
+      <button class="btn" type="submit">Speichern</button>
+      <button class="btn secondary" type="submit" name="regen" value="1">Neuen Schlüssel erzeugen</button>
+    </div>
+  </form>
+</div>
+
+<div class="panel" id="ddns">
+  <h2>DynDNS</h2>
+  <p>Hält einen DNS-Namen automatisch auf Ihre aktuelle öffentliche IP aktuell (Prüfung alle 5 Minuten). Nicht nötig, wenn Ihr Router das bereits übernimmt (z. B. MyFRITZ!).</p>
+  <form method="post">{{ csrf() }}<input type="hidden" name="section" value="ddns">
+    <div class="grid-2">
+      <div>
+        <label for="ddns-provider">Anbieter</label>
+        <select id="ddns-provider" name="provider">
+          {% for key, label in providers.items() %}<option value="{{ key }}" {{ 'selected' if state.ddns.provider == key }}>{{ label }}</option>{% endfor %}
+        </select>
+      </div>
+      <div data-ddns="duckdns dynv6 ipv64 noip custom">
+        <label for="domain">Domain / Hostname</label>
+        <input id="domain" name="domain" type="text" value="{{ state.ddns.domain }}" placeholder="meinvpn.duckdns.org">
+      </div>
+      <div data-ddns="duckdns dynv6 ipv64 custom">
+        <label for="token">Token / Schlüssel</label>
+        <input id="token" name="token" type="text" value="{{ state.ddns.token }}" autocomplete="off">
+      </div>
+      <div data-ddns="noip">
+        <label for="username">Benutzername</label>
+        <input id="username" name="username" type="text" value="{{ state.ddns.username }}" autocomplete="off">
+      </div>
+      <div data-ddns="noip">
+        <label for="ddnspw">Passwort</label>
+        <input id="ddnspw" name="password" type="password" placeholder="{{ 'gespeichert' if state.ddns.password else '' }}" autocomplete="new-password">
+      </div>
+      <div data-ddns="noip custom">
+        <label for="url">Update-URL</label>
+        <input id="url" name="url" type="text" value="{{ state.ddns.url }}" placeholder="https://example.com/update?host={domain}&amp;ip={ip}&amp;key={token}">
+        <p class="hint">Platzhalter: <code>{ip}</code>, <code>{domain}</code>, <code>{token}</code>. Bei No-IP leer = Standard-Server.</p>
+      </div>
+    </div>
+    <label class="inline" data-ddns="duckdns dynv6 ipv64 noip custom"><input type="checkbox" name="use_as_host" value="1" checked> Domain als öffentliche Adresse des Servers verwenden</label>
+    {% if state.ddns.last_update %}<p class="hint">Letzte Aktualisierung: {{ state.ddns.last_update }} – {{ state.ddns.last_result }}</p>{% endif %}
+    <div class="actions"><button class="btn" type="submit">Speichern</button></div>
+  </form>
+  {% if state.ddns.provider != 'none' %}
+  <form method="post">{{ csrf() }}<input type="hidden" name="section" value="ddns-update"><button class="btn secondary" type="submit">Jetzt aktualisieren</button></form>
+  {% endif %}
+</div>
+
+<div class="panel" id="letsencrypt">
+  <h2>Zertifikate</h2>
+  <dl class="kv">
+    <dt>Eigene CA</dt><dd>{{ ca_cn }}</dd>
+    <dt>Serverzertifikat</dt><dd>{{ cert.names | join(', ') }} – gültig bis {{ cert.not_after }}</dd>
+    <dt>SHA-256</dt><dd><code>{{ cert.sha256 }}</code></dd>
+  </dl>
+  <p><a href="{{ url_for('ca_download') }}">CA-Zertifikat herunterladen</a> – im Browser importieren, um Zertifikatswarnungen zu vermeiden.</p>
+  <h3>Let's Encrypt (optional)</h3>
+  <p>Ein öffentlich vertrauenswürdiges Zertifikat für <strong>SSTP, OpenConnect und die Weboberfläche</strong>. Dann muss auf den Geräten für diese Protokolle kein CA-Zertifikat installiert werden. Voraussetzungen: DNS-Name als öffentliche Adresse und eine zusätzliche Portfreigabe <strong>TCP 80</strong> auf diesen Server. IKEv2 und OpenVPN verwenden weiterhin die eigene CA.</p>
+  {% if state.letsencrypt.status %}<p class="hint">Status: {{ state.letsencrypt.status }}</p>{% endif %}
+  {% if state.letsencrypt.enabled and le_active %}
+    <p><span class="badge ok">aktiv</span> gültig bis {{ le_info.not_after }} – wird automatisch erneuert.</p>
+    <form method="post">{{ csrf() }}<input type="hidden" name="section" value="letsencrypt">
+      <button class="btn secondary" type="submit" name="disable" value="1">Let's Encrypt deaktivieren</button></form>
+  {% else %}
+  <form method="post">{{ csrf() }}<input type="hidden" name="section" value="letsencrypt">
+    <label for="email">E-Mail für Ablaufwarnungen (optional)</label>
+    <input id="email" name="email" type="email" value="{{ state.letsencrypt.email }}">
+    <div class="actions"><button class="btn" type="submit">Zertifikat anfordern</button></div>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

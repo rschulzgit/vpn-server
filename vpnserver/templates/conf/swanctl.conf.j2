@@ -1,0 +1,181 @@
+# Verwaltet von VPN-Server - manuelle Aenderungen werden ueberschrieben.
+connections {
+{% if ikev2 %}
+    # IKEv2 mit Client-Zertifikat (Android "IKEv2/IPSec RSA", iOS/macOS, Windows, strongSwan-App)
+    ikev2-cert {
+        version = 2
+        proposals = {{ ike2_proposals }}
+        pools = vpn-ipsec
+        send_cert = always
+        unique = replace
+        fragmentation = yes
+        mobike = yes
+        dpd_delay = 30s
+        rekey_time = 0s
+        local {
+            auth = pubkey
+            certs = vpn-server.crt
+            id = {{ server_id }}
+        }
+        remote {
+            auth = pubkey
+            cacerts = vpn-server-ca.crt
+        }
+        children {
+            ikev2-cert {
+                local_ts = 0.0.0.0/0
+                esp_proposals = {{ esp2_proposals }}
+                dpd_action = clear
+            }
+        }
+    }
+
+    # IKEv2 mit Benutzername/Passwort (EAP-MSCHAPv2: Windows, iOS, macOS, Android "IKEv2/IPSec MSCHAPv2")
+    ikev2-eap {
+        version = 2
+        proposals = {{ ike2_proposals }}
+        pools = vpn-ipsec
+        send_cert = always
+        unique = replace
+        fragmentation = yes
+        mobike = yes
+        dpd_delay = 30s
+        rekey_time = 0s
+        local {
+            auth = pubkey
+            certs = vpn-server.crt
+            id = {{ server_id }}
+        }
+        remote {
+            auth = eap-mschapv2
+            eap_id = %any
+        }
+        children {
+            ikev2-eap {
+                local_ts = 0.0.0.0/0
+                esp_proposals = {{ esp2_proposals }}
+                dpd_action = clear
+            }
+        }
+    }
+{% for c in clients %}
+
+    # IKEv2 mit Pre-Shared Key fuer {{ c.name }} (Android "IKEv2/IPSec PSK", iOS)
+    ikev2-psk-{{ c.name }} {
+        version = 2
+        proposals = {{ ike2_proposals }}
+        pools = vpn-ipsec
+        unique = replace
+        fragmentation = yes
+        mobike = yes
+        dpd_delay = 30s
+        rekey_time = 0s
+        local {
+            auth = psk
+            id = {{ server_id }}
+        }
+        remote {
+            auth = psk
+            id = {{ c.psk_id }}
+        }
+        children {
+            ikev2-psk {
+                local_ts = 0.0.0.0/0
+                esp_proposals = {{ esp2_proposals }}
+                dpd_action = clear
+            }
+        }
+    }
+{% endfor %}
+{% endif %}
+{% if ikev1_xauth %}
+
+    # IKEv1 mit PSK + XAuth ("Cisco IPsec" auf iOS/macOS, aeltere Android-Versionen)
+    ikev1-xauth {
+        version = 1
+        proposals = {{ ike1_proposals }}
+        pools = vpn-ipsec
+        unique = replace
+        fragmentation = yes
+        dpd_delay = 30s
+        rekey_time = 0s
+        local {
+            auth = psk
+        }
+        remote {
+            auth = psk
+        }
+        remote-xauth {
+            auth = xauth
+        }
+        children {
+            ikev1-xauth {
+                local_ts = 0.0.0.0/0
+                esp_proposals = {{ esp1_proposals }}
+                dpd_action = clear
+                rekey_time = 0s
+            }
+        }
+    }
+{% endif %}
+{% if l2tp %}
+
+    # L2TP/IPsec (Transportmodus fuer L2TP, PPP-Anmeldung uebernimmt accel-ppp)
+    l2tp-psk {
+        version = 1
+        proposals = {{ ike1_proposals }}
+        unique = never
+        fragmentation = yes
+        dpd_delay = 30s
+        rekey_time = 0s
+        local {
+            auth = psk
+        }
+        remote {
+            auth = psk
+        }
+        children {
+            l2tp {
+                mode = transport
+                local_ts = dynamic[udp/1701]
+                remote_ts = dynamic[udp]
+                esp_proposals = {{ esp1_proposals }}
+                dpd_action = clear
+                rekey_time = 0s
+            }
+        }
+    }
+{% endif %}
+}
+
+pools {
+    vpn-ipsec {
+        addrs = {{ pool_range }}
+        dns = {{ dns | join(', ') }}
+    }
+}
+
+secrets {
+{% for c in clients %}
+    eap-{{ c.name }} {
+        id = {{ c.name }}
+        secret = "{{ c.password }}"
+    }
+    xauth-{{ c.name }} {
+        id = {{ c.name }}
+        secret = "{{ c.password }}"
+    }
+{% if ikev2 %}
+    ike-psk-{{ c.name }} {
+        id = {{ c.psk_id }}
+        secret = "{{ c.psk }}"
+    }
+{% endif %}
+{% endfor %}
+{% if ikev1_xauth or l2tp %}
+    # Gemeinsamer IPsec-PSK fuer IKEv1 (L2TP/IPsec und Cisco IPsec)
+    ike-ikev1-shared {
+        secret = "{{ ipsec_psk }}"
+    }
+{% endif %}
+}

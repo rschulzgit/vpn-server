@@ -1,0 +1,282 @@
+{% from "_macros.html" import kv %}
+{% set host = info.host %}
+<div class="panel">
+  <div class="tabs" data-tabgroup="main">
+    {% if enabled(state, 'wireguard') %}<button type="button" data-tab="wireguard">WireGuard</button>{% endif %}
+    {% if enabled(state, 'openvpn') %}<button type="button" data-tab="openvpn">OpenVPN</button>{% endif %}
+    {% if enabled(state, 'ikev2') %}<button type="button" data-tab="ikev2">IKEv2 / IPsec</button>{% endif %}
+    {% if enabled(state, 'l2tp') %}<button type="button" data-tab="l2tp">L2TP/IPsec</button>{% endif %}
+    {% if enabled(state, 'ikev1_xauth') %}<button type="button" data-tab="cisco">Cisco IPsec</button>{% endif %}
+    {% if enabled(state, 'sstp') %}<button type="button" data-tab="sstp">SSTP</button>{% endif %}
+    {% if enabled(state, 'openconnect') %}<button type="button" data-tab="openconnect">OpenConnect</button>{% endif %}
+    {% if enabled(state, 'pptp') %}<button type="button" data-tab="pptp">PPTP</button>{% endif %}
+  </div>
+
+  {# ================= WireGuard ================= #}
+  {% if enabled(state, 'wireguard') %}
+  <div class="tab" data-tabpanel="main" data-name="wireguard">
+    <p><strong>Empfohlen.</strong> Modernes, sehr schnelles VPN. Apps gibt es kostenlos für Android, iPhone/iPad, Windows, macOS und Linux.</p>
+    <div class="row" style="align-items:flex-start;gap:2rem">
+      {% if wg_qr %}
+      <div class="center">
+        <div class="qr">{{ wg_qr | safe }}</div>
+        <p class="hint">QR-Code mit der WireGuard-App scannen</p>
+      </div>
+      {% endif %}
+      <div style="flex:1;min-width:260px">
+        <h3>Android / iPhone / iPad</h3>
+        <ol class="steps">
+          <li>App <strong>„WireGuard“</strong> aus dem Play Store bzw. App Store installieren.</li>
+          <li>In der App auf <strong>+</strong> tippen → <strong>„QR-Code scannen“</strong>{% if not wg_qr %} (QR-Code in der Weboberfläche des Servers) oder <strong>„Aus Datei importieren“</strong> und die unten geladene Datei wählen{% endif %}.</li>
+          <li>Einen Namen vergeben und den Tunnel einschalten.</li>
+        </ol>
+        <h3>Windows / macOS</h3>
+        <ol class="steps">
+          <li>WireGuard von <code>wireguard.com/install</code> bzw. aus dem Mac App Store installieren.</li>
+          <li><strong>„Tunnel aus Datei importieren“</strong> und die Konfigurationsdatei wählen → <strong>Aktivieren</strong>.</li>
+        </ol>
+        <h3>Linux</h3>
+        <p>Datei nach <code>/etc/wireguard/wg-vpn.conf</code> kopieren und <code>sudo wg-quick up wg-vpn</code> ausführen – oder in NetworkManager importieren: <code>nmcli connection import type wireguard file wg-vpn.conf</code></p>
+        <div class="actions">
+          <a class="btn" href="{{ dl('wireguard') }}">Konfigurationsdatei (.conf)</a>
+          <a class="btn secondary" href="{{ dl('wireguard-qr') }}">QR-Code (SVG)</a>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ================= OpenVPN ================= #}
+  {% if enabled(state, 'openvpn') %}
+  <div class="tab" data-tabpanel="main" data-name="openvpn">
+    <p>Bewährtes, sehr kompatibles VPN. Das Profil enthält alle Zertifikate{% if state.proto.openvpn.udp and state.proto.openvpn.tcp %} und versucht zuerst UDP, dann TCP (funktioniert auch in restriktiven Netzen){% endif %}.</p>
+    <div class="actions"><a class="btn" href="{{ dl('openvpn') }}">OpenVPN-Profil (.ovpn)</a></div>
+    <h3>Android / iPhone / iPad</h3>
+    <ol class="steps">
+      <li>App <strong>„OpenVPN Connect“</strong> installieren (Android alternativ: „OpenVPN for Android“).</li>
+      <li>Die <code>.ovpn</code>-Datei öffnen bzw. in der App unter <strong>„Profil importieren → Datei“</strong> auswählen.</li>
+      <li>Verbindung antippen.</li>
+    </ol>
+    <h3>Windows / macOS</h3>
+    <ol class="steps">
+      <li><strong>OpenVPN Connect</strong> (openvpn.net) oder unter Windows <strong>OpenVPN GUI</strong>, unter macOS alternativ <strong>Tunnelblick</strong> installieren.</li>
+      <li>Profil importieren (Doppelklick bzw. „Import Profile“) und verbinden.</li>
+    </ol>
+    <h3>Linux</h3>
+    <p><code>sudo openvpn --config {{ c.name }}.ovpn</code> oder <code>nmcli connection import type openvpn file {{ c.name }}.ovpn</code></p>
+  </div>
+  {% endif %}
+
+  {# ================= IKEv2 ================= #}
+  {% if enabled(state, 'ikev2') %}
+  <div class="tab" data-tabpanel="main" data-name="ikev2">
+    <p>IKEv2/IPsec ist in Android, iOS, macOS und Windows <strong>ohne zusätzliche App</strong> eingebaut. Drei Anmeldearten stehen zur Wahl: <strong>Zertifikat</strong> (am sichersten), <strong>Pre-Shared Key</strong> (am einfachsten) oder <strong>Benutzername/Passwort</strong>.</p>
+    <div class="subtabs" data-tabgroup="ike">
+      <button type="button" data-tab="android">Android</button>
+      <button type="button" data-tab="apple">iPhone / iPad / Mac</button>
+      <button type="button" data-tab="windows">Windows</button>
+      <button type="button" data-tab="sswan">strongSwan-App</button>
+      <button type="button" data-tab="linux">Linux</button>
+    </div>
+
+    <div class="tab" data-tabpanel="ike" data-name="android">
+      <p class="hint">Android 11 oder neuer. Einstellungen → Netzwerk &amp; Internet → VPN → <strong>+</strong> (je nach Hersteller z. B. „Verbindungen → Weitere Verbindungseinstellungen → VPN“).</p>
+      <div class="subtabs" data-tabgroup="ikeandroid">
+        <button type="button" data-tab="psk">IKEv2/IPSec PSK</button>
+        <button type="button" data-tab="rsa">IKEv2/IPSec RSA (Zertifikat)</button>
+        <button type="button" data-tab="mschap">IKEv2/IPSec MSCHAPv2</button>
+      </div>
+      <div class="tab" data-tabpanel="ikeandroid" data-name="psk">
+        <h3>Variante „IKEv2/IPSec PSK“ (Pre-Shared Key)</h3>
+        <p>Neues VPN-Profil anlegen und folgende Werte eintragen:</p>
+        <dl class="kv">
+          {{ kv('Typ', 'IKEv2/IPSec PSK', False) }}
+          {{ kv('Serveradresse', host) }}
+          {{ kv('IPSec-ID', c.psk_id) }}
+          {{ kv('Vorinstallierter IPSec-Schlüssel', c.psk) }}
+        </dl>
+      </div>
+      <div class="tab" data-tabpanel="ikeandroid" data-name="rsa">
+        <h3>Variante „IKEv2/IPSec RSA“ (Zertifikat)</h3>
+        <ol class="steps">
+          <li><a href="{{ dl('ca') }}">CA-Zertifikat</a> herunterladen. Einstellungen → Sicherheit → <em>Verschlüsselung &amp; Anmeldedaten</em> → <em>Zertifikat installieren</em> → <strong>CA-Zertifikat</strong> → Datei <code>vpn-server-ca.crt</code> wählen.</li>
+          <li><a href="{{ dl('p12') }}">Client-Zertifikat (.p12)</a> herunterladen. <em>Zertifikat installieren</em> → <strong>VPN- und App-Nutzerzertifikat</strong> → Datei wählen, Passwort: <code>{{ c.p12_password }}</code> <button type="button" class="copy" data-copy="{{ c.p12_password }}">kopieren</button></li>
+          <li>VPN-Profil anlegen:
+            <dl class="kv">
+              {{ kv('Typ', 'IKEv2/IPSec RSA', False) }}
+              {{ kv('Serveradresse', host) }}
+              {{ kv('IPSec-ID', c.name) }}
+              {{ kv('IPSec-Nutzerzertifikat', c.name ~ ' (' ~ (state.server.name or 'VPN-Server') ~ ')', False) }}
+              {{ kv('IPSec-CA-Zertifikat', info.ca_cn, False) }}
+              {{ kv('IPSec-Serverzertifikat', 'Vom Server empfangen', False) }}
+            </dl>
+          </li>
+        </ol>
+      </div>
+      <div class="tab" data-tabpanel="ikeandroid" data-name="mschap">
+        <h3>Variante „IKEv2/IPSec MSCHAPv2“ (Benutzername/Passwort)</h3>
+        <ol class="steps">
+          <li><a href="{{ dl('ca') }}">CA-Zertifikat</a> wie bei der RSA-Variante als <strong>CA-Zertifikat</strong> installieren.</li>
+          <li>VPN-Profil anlegen:
+            <dl class="kv">
+              {{ kv('Typ', 'IKEv2/IPSec MSCHAPv2', False) }}
+              {{ kv('Serveradresse', host) }}
+              {{ kv('IPSec-ID', c.name) }}
+              {{ kv('IPSec-CA-Zertifikat', info.ca_cn, False) }}
+              {{ kv('IPSec-Serverzertifikat', 'Vom Server empfangen', False) }}
+              {{ kv('Nutzername', c.name) }}
+              {{ kv('Passwort', c.password) }}
+            </dl>
+          </li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="tab" data-tabpanel="ike" data-name="apple">
+      <h3>Automatisch per Profil (empfohlen)</h3>
+      <ol class="steps">
+        <li>Profil auf dem Gerät öffnen (am einfachsten über den Teilen-Link in Safari):
+          <div class="actions">
+            <a class="btn" href="{{ dl('mobileconfig-cert') }}">Profil mit Zertifikat</a>
+            <a class="btn secondary" href="{{ dl('mobileconfig-eap') }}">Profil mit Benutzername/Passwort</a>
+          </div>
+        </li>
+        <li><strong>iPhone/iPad:</strong> Einstellungen → <em>Profil geladen</em> → Installieren (Gerätecode eingeben). <strong>Mac:</strong> Doppelklick, dann Systemeinstellungen → Datenschutz &amp; Sicherheit → Profile → Installieren.</li>
+        <li>Einstellungen → VPN → „{{ state.server.name or 'VPN-Server' }}“ einschalten.</li>
+      </ol>
+      <h3>Manuell mit Pre-Shared Key</h3>
+      <p>Einstellungen → Allgemein → VPN &amp; Geräteverwaltung → VPN → VPN hinzufügen:</p>
+      <dl class="kv">
+        {{ kv('Typ', 'IKEv2', False) }}
+        {{ kv('Server', host) }}
+        {{ kv('Entfernte ID', host) }}
+        {{ kv('Lokale ID', c.psk_id) }}
+        {{ kv('Benutzerauthentifizierung', 'Keine', False) }}
+        {{ kv('Zertifikat verwenden', 'aus', False) }}
+        {{ kv('Geheimer Schlüssel', c.psk) }}
+      </dl>
+    </div>
+
+    <div class="tab" data-tabpanel="ike" data-name="windows">
+      <p>Laden Sie ein Einrichtungsskript herunter und starten Sie es mit <strong>Rechtsklick → „Als Administrator ausführen“</strong>. Es importiert das CA-Zertifikat und legt die VPN-Verbindung mit sicheren Verschlüsselungseinstellungen an.</p>
+      <div class="actions">
+        <a class="btn" href="{{ dl('win-ikev2-eap') }}">Skript: Benutzername/Passwort</a>
+        <a class="btn secondary" href="{{ dl('win-ikev2-cert') }}">Skript: Zertifikat</a>
+      </div>
+      <p>Danach: Einstellungen → Netzwerk und Internet → VPN → „{{ state.server.name or 'VPN-Server' }} IKEv2“ → Verbinden. Bei der Passwort-Variante Benutzername <code>{{ c.name }}</code> und Passwort <code>{{ c.password }}</code> eingeben.</p>
+      <p class="hint">Windows SmartScreen kann vor heruntergeladenen Skripten warnen („Weitere Informationen → Trotzdem ausführen“). Sie können den Inhalt vorher mit einem Texteditor prüfen.</p>
+    </div>
+
+    <div class="tab" data-tabpanel="ike" data-name="sswan">
+      <p>Die kostenlose App <strong>„strongSwan VPN Client“</strong> (Android) unterstützt alle Varianten und importiert das fertige Profil inklusive Zertifikaten.</p>
+      <div class="actions">
+        <a class="btn" href="{{ dl('sswan-cert') }}">Profil mit Zertifikat (.sswan)</a>
+        <a class="btn secondary" href="{{ dl('sswan-eap') }}">Profil mit Passwort (.sswan)</a>
+      </div>
+      <p>App öffnen → Menü → <strong>„VPN-Profile importieren“</strong> → Datei wählen. Beim Zertifikatsprofil das Passwort <code>{{ c.p12_password }}</code> eingeben, beim Passwortprofil beim Verbinden <code>{{ c.password }}</code>.</p>
+    </div>
+
+    <div class="tab" data-tabpanel="ike" data-name="linux">
+      <p>NetworkManager mit Plugin <code>network-manager-strongswan</code> installieren. Neue VPN-Verbindung „IPsec/IKEv2 (strongswan)“:</p>
+      <dl class="kv">
+        {{ kv('Server/Adresse', host) }}
+        {{ kv('Server-Identität', host) }}
+        {{ kv('Zertifikat (CA)', 'vpn-server-ca.crt', False) }}
+        {{ kv('Authentifizierung', 'EAP (Benutzername/Passwort) oder Zertifikat (.p12)', False) }}
+        {{ kv('Benutzername', c.name) }}
+        {{ kv('Passwort', c.password) }}
+      </dl>
+      <p>„Innere IP-Adresse anfordern“ aktivieren.</p>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ================= L2TP ================= #}
+  {% if enabled(state, 'l2tp') %}
+  <div class="tab" data-tabpanel="main" data-name="l2tp">
+    <p>Älteres, aber weit verbreitetes Protokoll – eingebaut in Windows, macOS, iOS und Android bis Version 11. Für neue Installationen sind WireGuard oder IKEv2 besser.</p>
+    <dl class="kv">
+      {{ kv('Server', host) }}
+      {{ kv('IPsec-Pre-Shared-Key', info.psk) }}
+      {{ kv('Benutzername', c.name) }}
+      {{ kv('Passwort', c.password) }}
+    </dl>
+    <h3>Windows</h3>
+    <p><a class="btn small" href="{{ dl('win-l2tp') }}">Einrichtungsskript</a> mit Rechtsklick → „Als Administrator ausführen“. Das Skript setzt außerdem den für Server hinter NAT nötigen Registry-Eintrag (<code>AssumeUDPEncapsulationContextOnSendRule = 2</code>) – danach Windows <strong>neu starten</strong>.</p>
+    <h3>iPhone / iPad / Mac</h3>
+    <p>VPN hinzufügen → Typ <strong>L2TP</strong> → Server, Account (Benutzername), Passwort und „Shared Secret“ (PSK) eintragen, „Gesamten Verkehr senden“ aktivieren.</p>
+    <h3>Android bis Version 11</h3>
+    <p>Typ <strong>„L2TP/IPSec PSK“</strong>, Serveradresse, „Vorinstallierter IPSec-Schlüssel“ = PSK; L2TP-Schlüssel und IPSec-ID leer lassen.</p>
+    <h3>Linux</h3>
+    <p>Plugin <code>network-manager-l2tp</code> installieren, unter „IPsec-Einstellungen“ den PSK eintragen.</p>
+  </div>
+  {% endif %}
+
+  {# ================= Cisco IPsec ================= #}
+  {% if enabled(state, 'ikev1_xauth') %}
+  <div class="tab" data-tabpanel="main" data-name="cisco">
+    <p>IKEv1 mit XAuth („Cisco IPsec“) – eingebaut in iPhone/iPad und Mac, auf Android bis Version 11 als „IPSec Xauth PSK“.</p>
+    <dl class="kv">
+      {{ kv('Server', host) }}
+      {{ kv('Account / Benutzername', c.name) }}
+      {{ kv('Passwort', c.password) }}
+      {{ kv('Gruppenname', '(leer lassen)', False) }}
+      {{ kv('Shared Secret / PSK', info.psk) }}
+    </dl>
+    <p><strong>iPhone/iPad/Mac:</strong> VPN hinzufügen → Typ <strong>IPsec</strong> (bzw. „Cisco IPSec“ auf dem Mac). <strong>Android ≤ 11:</strong> Typ „IPSec Xauth PSK“, IPSec-ID leer lassen.</p>
+  </div>
+  {% endif %}
+
+  {# ================= SSTP ================= #}
+  {% if enabled(state, 'sstp') %}
+  <div class="tab" data-tabpanel="main" data-name="sstp">
+    <p>SSTP ist in Windows eingebaut und läuft über HTTPS (TCP {{ state.proto.sstp.port }}) – funktioniert daher auch in Hotels und Firmennetzen mit strenger Firewall.</p>
+    <dl class="kv">
+      {{ kv('Server', info.sstp_addr) }}
+      {{ kv('Benutzername', c.name) }}
+      {{ kv('Passwort', c.password) }}
+    </dl>
+    <h3>Windows</h3>
+    <p><a class="btn small" href="{{ dl('win-sstp') }}">Einrichtungsskript</a> mit Rechtsklick → „Als Administrator ausführen“.{% if not info.le %} Es importiert das CA-Zertifikat, dem Windows vertrauen muss.{% endif %}</p>
+    <h3>Android</h3>
+    <p>App <strong>„Open SSTP Client“</strong> (Play Store/F-Droid): Hostname <code>{{ host }}</code>, Port {{ state.proto.sstp.port }}, Benutzername und Passwort.{% if not info.le %} Unter „Zertifikat“ das <a href="{{ dl('ca') }}">CA-Zertifikat</a> angeben oder „Zertifikat nicht prüfen“ wählen.{% endif %}</p>
+    <h3>Linux</h3>
+    <p>Plugin <code>network-manager-sstp</code> oder <code>sstpc --ca-cert vpn-server-ca.crt --user {{ c.name }} --password … {{ info.sstp_addr }} usepeerdns require-mschap-v2 noauth</code></p>
+    <p class="hint">macOS und iOS haben keinen eingebauten SSTP-Client – dort besser IKEv2 oder WireGuard verwenden.</p>
+  </div>
+  {% endif %}
+
+  {# ================= OpenConnect ================= #}
+  {% if enabled(state, 'openconnect') %}
+  <div class="tab" data-tabpanel="main" data-name="openconnect">
+    <p>Kompatibel zu Cisco AnyConnect / Cisco Secure Client. Läuft über TLS (TCP) mit optionalem DTLS (UDP) – sehr gut durch Firewalls.</p>
+    <dl class="kv">
+      {{ kv('Server', info.oc_addr) }}
+      {{ kv('Benutzername', c.name) }}
+      {{ kv('Passwort', c.password) }}
+      {% if not info.le %}{{ kv('Zertifikats-Pin', info.pin) }}{% endif %}
+    </dl>
+    <h3>Apps</h3>
+    <ul>
+      <li><strong>Cisco Secure Client</strong> (Android, iOS, Windows, macOS): Verbindung hinzufügen, Server <code>{{ info.oc_addr }}</code>.{% if not info.le %} Da der Server ein eigenes Zertifikat nutzt, in den App-Einstellungen „Nicht vertrauenswürdige Server blockieren“ deaktivieren oder das <a href="{{ dl('ca') }}">CA-Zertifikat</a> installieren.{% endif %}</li>
+      <li><strong>OpenConnect</strong> (Linux, NetworkManager-Plugin <code>network-manager-openconnect</code>): VPN-Protokoll „Cisco AnyConnect“, Gateway <code>{{ info.oc_addr }}</code>.</li>
+      <li>Kommandozeile: <code>sudo openconnect {% if not info.le %}--servercert {{ info.pin }} {% endif %}-u {{ c.name }} {{ info.oc_addr }}</code></li>
+      <li>Windows/macOS ohne Cisco: <strong>OpenConnect-GUI</strong> bzw. „openconnect“ per Homebrew.</li>
+    </ul>
+  </div>
+  {% endif %}
+
+  {# ================= PPTP ================= #}
+  {% if enabled(state, 'pptp') %}
+  <div class="tab" data-tabpanel="main" data-name="pptp">
+    <div class="warnbox"><strong>Unsicher:</strong> PPTP gilt seit Jahren als geknackt (MS-CHAPv2). Nur für alte Geräte verwenden, für die es keine Alternative gibt. Der Router muss zusätzlich das GRE-Protokoll („PPTP-Passthrough“) durchlassen.</div>
+    <dl class="kv">
+      {{ kv('Server', host) }}
+      {{ kv('Benutzername', c.name) }}
+      {{ kv('Passwort', c.password) }}
+      {{ kv('Verschlüsselung', 'MPPE 128 Bit (erforderlich)', False) }}
+    </dl>
+    <p>Windows: <a class="btn small" href="{{ dl('win-pptp') }}">Einrichtungsskript</a>. Aktuelle iOS-, macOS- und Android-Versionen unterstützen PPTP nicht mehr.</p>
+  </div>
+  {% endif %}
+</div>

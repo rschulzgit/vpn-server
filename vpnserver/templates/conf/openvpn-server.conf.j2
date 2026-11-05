@@ -1,0 +1,34 @@
+# Verwaltet von VPN-Server - manuelle Aenderungen werden ueberschrieben.
+port {{ port }}
+proto {{ proto }}
+dev {{ dev }}
+dev-type tun
+topology subnet
+server {{ network }} {{ netmask }}
+ca {{ pki }}/ca.crt
+cert {{ pki }}/server.crt
+key {{ pki }}/server.key
+dh none
+tls-crypt {{ pki }}/openvpn-tls-crypt.key
+crl-verify {{ pki }}/crl.pem
+remote-cert-tls client
+tls-version-min 1.2
+data-ciphers AES-256-GCM:AES-128-GCM:CHACHA20-POLY1305
+data-ciphers-fallback AES-256-CBC
+auth SHA256
+keepalive 10 60
+persist-key
+persist-tun
+user nobody
+group nogroup
+push "redirect-gateway def1 bypass-dhcp"
+{% for d in dns %}
+push "dhcp-option DNS {{ d }}"
+{% endfor %}
+
+{% if udp %}
+explicit-exit-notify 1
+{% endif %}
+status /run/openvpn-server/status-{{ name }}.log 10
+status-version 2
+verb 3

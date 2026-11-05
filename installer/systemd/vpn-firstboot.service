@@ -1,0 +1,19 @@
+[Unit]
+Description=VPN-Server Ersteinrichtung (Schluessel, Zertifikate, Dienste)
+ConditionPathExists=!/etc/vpn-server/state.json
+After=network-online.target
+Wants=network-online.target
+Before=getty@tty1.service serial-getty@ttyS0.service vpn-webui.service
+
+[Service]
+Type=oneshot
+Environment=VPNSERVER_NO_BLOCK=1
+# Bis zu 60 s auf eine Default-Route (DHCP) warten
+ExecStartPre=/bin/sh -c 'for i in $(seq 60); do ip route get 1.1.1.1 >/dev/null 2>&1 && exit 0; sleep 1; done; exit 0'
+ExecStart=/usr/local/sbin/vpnctl init
+RemainAfterExit=yes
+TimeoutStartSec=600
+StandardOutput=journal+console
+
+[Install]
+WantedBy=multi-user.target

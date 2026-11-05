@@ -1,0 +1,100 @@
+# Verwaltet von VPN-Server - manuelle Aenderungen werden ueberschrieben.
+[modules]
+log_file
+chap-secrets
+{% if l2tp %}
+l2tp
+{% endif %}
+{% if sstp %}
+sstp
+{% endif %}
+{% if pptp %}
+pptp
+{% endif %}
+auth_mschap_v2
+auth_chap_md5
+ippool
+
+[core]
+log-error=/var/log/accel-ppp/core.log
+thread-count=4
+
+[common]
+max-starting=50
+
+[ppp]
+verbose=1
+min-mtu=1280
+mtu=1400
+mru=1400
+ipv4=require
+ipv6=deny
+mppe=prefer
+lcp-echo-interval=20
+lcp-echo-failure=3
+unit-cache=1
+
+[auth]
+any-login=0
+noauth=0
+
+{% if l2tp %}
+[l2tp]
+verbose=1
+bind=0.0.0.0
+port=1701
+ip-pool=vpn-ppp
+ifname=l2tp%d
+hello-interval=60
+ppp-max-mtu=1400
+mppe=deny
+
+{% endif %}
+{% if sstp %}
+[sstp]
+verbose=1
+port={{ sstp_port }}
+accept=ssl
+ssl-protocol=tls1.2,tls1.3
+ssl-pemfile={{ tls_cert }}
+ssl-keyfile={{ tls_key }}
+cert-hash-proto=sha1,sha256
+http-error=deny
+ip-pool=vpn-ppp
+ifname=sstp%d
+ppp-max-mtu=1400
+mppe=deny
+
+{% endif %}
+{% if pptp %}
+[pptp]
+verbose=1
+port=1723
+ip-pool=vpn-ppp
+ifname=pptp%d
+mppe=require
+ppp-max-mtu=1436
+
+{% endif %}
+[dns]
+{% for d in dns[:2] %}
+dns{{ loop.index }}={{ d }}
+{% endfor %}
+
+[ip-pool]
+gw-ip-address={{ gw_ip }}
+{{ pool_range }},name=vpn-ppp
+
+[chap-secrets]
+gw-ip-address={{ gw_ip }}
+chap-secrets=/etc/vpn-server/chap-secrets
+
+[log]
+log-file=/var/log/accel-ppp/accel-ppp.log
+log-emerg=/var/log/accel-ppp/emerg.log
+log-fail-file=/var/log/accel-ppp/auth-fail.log
+level=3
+
+[cli]
+verbose=1
+tcp=127.0.0.1:2001

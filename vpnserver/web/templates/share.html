@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}VPN-Zugang {{ c.name }}{% endblock %}
+{% block content %}
+<h1>VPN-Zugang: {{ c.name }}</h1>
+<div class="panel">
+  <p>Hier finden Sie alle Profile und Anleitungen für dieses Gerät. Wählen Sie unten das gewünschte Protokoll. <strong>Empfehlung:</strong> WireGuard (schnell, stabil, Apps für alle Systeme).</p>
+  <div class="row">
+    <a class="btn" href="{{ dl('zip') }}">Alle Profile als ZIP</a>
+    <a class="btn secondary" href="{{ dl('ca') }}">CA-Zertifikat</a>
+  </div>
+</div>
+{% include "_client_body.html" %}
+{% endblock %}

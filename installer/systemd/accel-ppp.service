@@ -1,0 +1,17 @@
+[Unit]
+Description=accel-ppp (L2TP, SSTP, PPTP) fuer VPN-Server
+After=network.target
+
+[Service]
+Type=forking
+ExecStartPre=/bin/mkdir -p /var/log/accel-ppp
+ExecStartPre=-/sbin/modprobe -a ppp_generic ppp_mppe l2tp_ppp pptp
+ExecStart=/usr/sbin/accel-pppd -d -p /run/accel-pppd.pid -c /etc/accel-ppp.conf
+ExecReload=/bin/kill -USR1 $MAINPID
+PIDFile=/run/accel-pppd.pid
+StandardOutput=null
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

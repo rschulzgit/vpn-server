@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Anmelden{% endblock %}
+{% block content %}
+<div class="login-wrap">
+  <div class="panel">
+    <h1>VPN-Server</h1>
+    <p class="muted">Bitte melden Sie sich an.</p>
+    {% if error %}<div class="flash error">{{ error }}</div>{% endif %}
+    <form method="post" autocomplete="on">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label for="username">Benutzername</label>
+      <input id="username" name="username" type="text" value="admin" autocomplete="username" required>
+      <label for="password">Passwort</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required autofocus>
+      <div class="actions"><button class="btn" type="submit">Anmelden</button></div>
+    </form>
+    <p class="hint">Das Initialpasswort wird nach der Installation auf dem Bildschirm (Konsole) des Servers angezeigt.</p>
+    <p class="hint">Browser-Warnung wegen des Zertifikats? Das ist beim ersten Aufruf normal. Optional können Sie das <a href="{{ url_for('ca_download') }}">CA-Zertifikat</a> des Servers importieren.</p>
+  </div>
+</div>
+{% endblock %}
