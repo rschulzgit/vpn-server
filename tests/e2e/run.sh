@@ -107,7 +107,7 @@ timeout "$INSTALL_TIMEOUT" qemu-system-x86_64 "${ACCEL[@]}" -m 2048 -smp 2 -no-r
   -display none -monitor none -serial file:install-serial.log \
   -drive file=disk.qcow2,if=virtio,format=qcow2 -cdrom "$ISO" \
   -kernel vmlinuz -initrd initrd.gz \
-  -append "auto=true priority=critical preseed/file=/cdrom/preseed.cfg locale=de_DE.UTF-8 keymap=de console=ttyS0,115200n8 DEBIAN_FRONTEND=text --- console=ttyS0,115200n8" \
+  -append "auto=true priority=critical preseed/file=/cdrom/preseed.cfg locale=en_US.UTF-8 keymap=de console=ttyS0,115200n8 DEBIAN_FRONTEND=text --- console=ttyS0,115200n8" \
   -netdev user,id=n0 -device virtio-net-pci,netdev=n0 &
 QPID=$!
 # Watchdog: Bildschirm des Installers rendern (die Uhr der screen-Statuszeile
@@ -131,12 +131,14 @@ while kill -0 $QPID 2>/dev/null; do
   elif [ $((NOW - LAST_CHANGE)) -gt "$STALL_LIMIT" ]; then
     echo "!!! Bildschirm seit $STALL_LIMIT s unveraendert - der Installer wartet vermutlich auf eine Eingabe:"
     show_screen install-serial.log
+    STALLED=1
     kill $QPID 2>/dev/null
     break
   fi
 done
 wait $QPID
 RC=$?
+[ "${STALLED:-0}" = 1 ] && RC=99
 MIN=$(( ($(date +%s) - START) / 60 ))
 echo "Installation beendet nach $MIN Minuten (Exit $RC)"
 modprobe nbd max_part=8 >/dev/null 2>&1
@@ -207,10 +209,10 @@ trap 'kill $HTTP_PID 2>/dev/null; kill $(cat "$WORK/qemu.pid" 2>/dev/null) 2>/de
 
 echo "Warte auf die Weboberflaeche ..."
 for _ in $(seq 1 180); do
-  curl -skf --noproxy '*' https://127.0.0.1:8443/health >/dev/null 2>&1 && break
+  curl -skf --max-time 5 --noproxy '*' https://127.0.0.1:8443/health >/dev/null 2>&1 && break
   sleep 5
 done
-if curl -skf --noproxy '*' https://127.0.0.1:8443/health >/dev/null; then
+if curl -skf --max-time 5 --noproxy '*' https://127.0.0.1:8443/health >/dev/null; then
   result "Erststart" "Weboberfläche nach dem ersten Start erreichbar (https://<IP>:8443)" true
 else
   strip_ansi boot-serial.log | tail -60

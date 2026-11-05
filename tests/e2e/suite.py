@@ -1186,7 +1186,7 @@ def t_firewall():
 def t_reboot():
     remote("systemd-run --on-active=2 systemctl reboot", timeout=30)
     time.sleep(20)
-    check(wait_until(lambda: sh(f"curl -skf --noproxy '*' {WEB}/health").returncode == 0, 600, 5),
+    check(wait_until(lambda: sh(f"curl -skf --max-time 5 --noproxy '*' {WEB}/health", timeout=15).returncode == 0, 600, 5),
           "Weboberfläche nach Neustart nicht erreichbar")
     check(W.login(ADMIN_PW), "Login nach Neustart fehlgeschlagen")
 

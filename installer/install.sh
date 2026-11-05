@@ -156,6 +156,10 @@ systemctl enable nftables.service vpn-webui.service vpn-ddns.timer vpn-maintenan
 
 if [ "$MODE" = iso ]; then
   systemctl enable vpn-firstboot.service >/dev/null 2>&1 || true
+  # Installer lief auf Englisch -> System auf Deutsch umstellen
+  if locale -a 2>/dev/null | grep -qi '^de_DE\.utf8$'; then
+    update-locale LANG=de_DE.UTF-8 >/dev/null 2>&1 || true
+  fi
   cat > /etc/issue <<'EOF'
 
   VPN-Server (\n) - Ersteinrichtung laeuft ...
