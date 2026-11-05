@@ -25,6 +25,8 @@ result() {  # Kategorie, Name, ok(true/false), Detail
   if [ "$3" = true ]; then echo -e "\033[1;32mPASS\033[0m $2 ${4:-}"; else echo -e "\033[1;31mFAIL\033[0m $2 ${4:-}"; fi
 }
 strip_ansi() { sed 's/\x1b\[[0-9;?]*[A-Za-z]//g' "$1" | tr -d '\r'; }
+show_screen() { python3 "$HERE/screen.py" "$1" 2>/dev/null; }
+screen_sig() { python3 "$HERE/screen.py" --sig "$1" 2>/dev/null; }
 sendkey() {
   python3 -c 'import socket,sys; s=socket.socket(socket.AF_UNIX); s.connect(sys.argv[1]); s.sendall(("sendkey %s\n" % sys.argv[2]).encode())' "$1" "$2" 2>/dev/null
 }
@@ -46,6 +48,7 @@ boot_menu_test() {  # Name, QEMU-Firmware-Argumente ...
   local name="$1"; shift
   rm -f "boot-$name.pcap" "mon-$name.sock"
   qemu-system-x86_64 "${ACCEL[@]}" -m 2048 -smp 2 "$@" -display none -cdrom "$ISO" \
+    -serial "file:$WORK/boot-$name-serial.log" \
     -netdev user,id=n0 -device virtio-net-pci,netdev=n0 \
     -object "filter-dump,id=f0,netdev=n0,file=$WORK/boot-$name.pcap" \
     -monitor "unix:$WORK/mon-$name.sock,server,nowait" -daemonize -pidfile "$WORK/qemu-$name.pid" || return 1
@@ -61,6 +64,8 @@ EOF
     then ok=0; break; fi
     sleep 5
   done
+  echo "Bildschirm (serielle Konsole) nach dem Test:"
+  show_screen "$WORK/boot-$name-serial.log"
   kill "$(cat "$WORK/qemu-$name.pid")" 2>/dev/null
   sleep 2
   return $ok
@@ -105,24 +110,29 @@ timeout "$INSTALL_TIMEOUT" qemu-system-x86_64 "${ACCEL[@]}" -m 2048 -smp 2 -no-r
   -append "auto=true priority=critical preseed/file=/cdrom/preseed.cfg locale=de_DE.UTF-8 keymap=de console=ttyS0,115200n8 DEBIAN_FRONTEND=text --- console=ttyS0,115200n8" \
   -netdev user,id=n0 -device virtio-net-pci,netdev=n0 &
 QPID=$!
-# Watchdog: Fortschritt protokollieren, haengenden Installer (wartet auf Eingabe) erkennen
-LAST_SIZE=-1
+# Watchdog: Bildschirm des Installers rendern (die Uhr der screen-Statuszeile
+# wird ignoriert) und einen haengenden Installer (wartet auf Eingabe) erkennen
+LAST_SIG=""
 LAST_CHANGE=$(date +%s)
-STALL_LIMIT=$(( KVM == 1 ? 900 : 2700 ))
+LAST_SHOWN=0
+STALL_LIMIT=$(( KVM == 1 ? 600 : 2700 ))
 while kill -0 $QPID 2>/dev/null; do
   sleep 30
-  SIZE=$(stat -c %s install-serial.log 2>/dev/null || echo 0)
+  SIG="$(screen_sig install-serial.log)"
   NOW=$(date +%s)
-  if [ "$SIZE" != "$LAST_SIZE" ]; then
-    LAST_SIZE=$SIZE
+  if [ "$SIG" != "$LAST_SIG" ]; then
+    LAST_SIG=$SIG
     LAST_CHANGE=$NOW
+    if [ $((NOW - LAST_SHOWN)) -ge 180 ]; then
+      echo "[$(( (NOW - START) / 60 )) min] Installer-Bildschirm:"
+      show_screen install-serial.log | grep -v '^|  *|$'
+      LAST_SHOWN=$NOW
+    fi
   elif [ $((NOW - LAST_CHANGE)) -gt "$STALL_LIMIT" ]; then
-    echo "!!! Keine Ausgabe des Installers seit $STALL_LIMIT s - vermutlich wartet er auf eine Eingabe"
+    echo "!!! Bildschirm seit $STALL_LIMIT s unveraendert - der Installer wartet vermutlich auf eine Eingabe:"
+    show_screen install-serial.log
     kill $QPID 2>/dev/null
     break
-  fi
-  if [ $(( (NOW - START) % 120 )) -lt 30 ]; then
-    echo "[$(( (NOW - START) / 60 )) min] $(strip_ansi install-serial.log | grep -aE '[[:alnum:]]{4}' | tail -n 1 | cut -c1-150)"
   fi
 done
 wait $QPID
@@ -142,7 +152,7 @@ if qemu-nbd -c /dev/nbd0 disk.qcow2 >/dev/null 2>&1; then
 fi
 [ -f install.log ] && { echo "--- Ende von /var/log/vpn-server-install.log ---"; tail -n 25 install.log; }
 if [ $RC -ne 0 ]; then
-  strip_ansi install-serial.log | tail -c 4000
+  show_screen install-serial.log
   [ -f installer-syslog.log ] && grep -iE "error|fail|late_command" installer-syslog.log | tail -40
   result "Installation" "Vollautomatische Installation ohne Eingaben" false "Exit $RC nach $MIN min"
   exit 1

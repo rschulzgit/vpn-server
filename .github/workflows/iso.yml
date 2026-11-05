@@ -64,7 +64,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils ovmf wireguard-tools \
             openvpn openconnect strongswan-swanctl charon-systemd libcharon-extauth-plugins \
             libcharon-extra-plugins libstrongswan-extra-plugins sstp-client xl2tpd ppp sshpass curl \
-            zbar-tools librsvg2-bin bind9-dnsutils iptables
+            zbar-tools librsvg2-bin bind9-dnsutils iptables python3-pyte
           sudo systemctl stop strongswan xl2tpd openvpn || true
           command -v pwsh || sudo snap install powershell --classic
           pwsh -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'

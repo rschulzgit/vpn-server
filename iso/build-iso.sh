@@ -113,7 +113,12 @@ sed "s|@@PWHASH@@|$PWHASH|; s|@@PARTMAN@@|gesamte erste Festplatte|" "$ROOT/iso/
 grep -vE '^d-i (partman|netcfg/choose_interface)' "$STAGE/preseed.cfg" \
   | sed 's|(gesamte erste Festplatte)|(wird abgefragt)|' > "$STAGE/preseed-manual.cfg"
 echo "d-i partman/mount_style select uuid" >> "$STAGE/preseed-manual.cfg"
+cp "$ROOT/iso/grub.cfg" "$STAGE/grub.cfg"
+cp "$ROOT/iso/isolinux.cfg" "$STAGE/isolinux.cfg"
 if [ "$E2E" = 1 ]; then
+  # Testvariante: Installer zusaetzlich auf der seriellen Konsole (fuer die CI-Auswertung)
+  sed -i 's| --- quiet| console=tty0 console=ttyS0,115200n8 --- quiet console=ttyS0,115200n8|' \
+    "$STAGE/grub.cfg" "$STAGE/isolinux.cfg" 2>/dev/null || true
   for f in preseed.cfg preseed-manual.cfg; do
     {
       echo "d-i debian-installer/exit/poweroff boolean true"
@@ -121,8 +126,6 @@ if [ "$E2E" = 1 ]; then
     } >> "$STAGE/$f"
   done
 fi
-cp "$ROOT/iso/grub.cfg" "$STAGE/grub.cfg"
-cp "$ROOT/iso/isolinux.cfg" "$STAGE/isolinux.cfg"
 
 MAPS=(
   -map "$PAY" /vpn-server
