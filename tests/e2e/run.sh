@@ -5,16 +5,18 @@
 #   2. Start des installierten Systems, Erststart, Initialpasswort auf der Konsole
 #   3. Geraete- und Funktionstests (tests/e2e/suite.py)
 #
-#   sudo tests/e2e/run.sh <e2e-iso>
+#   sudo [PHASES="boot install test"] tests/e2e/run.sh <e2e-iso>
 set -uo pipefail
 
 ISO="$(readlink -f "$1")"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORK="${WORK:-/tmp/e2e}"
 INSTALL_TIMEOUT="${INSTALL_TIMEOUT:-150m}"
+PHASES="${PHASES:-boot install test}"
 mkdir -p "$WORK"
 cd "$WORK" || exit 1
-: > boot-results.jsonl
+phase() { [[ " $PHASES " == *" $1 "* ]]; }
+if phase boot || [ ! -f boot-results.jsonl ]; then : > boot-results.jsonl; fi
 
 log() { echo -e "\n\033[1;34m===== $* =====\033[0m"; }
 result() {  # Kategorie, Name, ok(true/false), Detail
@@ -64,7 +66,7 @@ EOF
   return $ok
 }
 
-if [ "$KVM" = 1 ]; then
+if [ "$KVM" = 1 ] && phase boot; then
   if boot_menu_test bios -boot d; then
     result "Installationsmedium" "BIOS: Bootmenü (isolinux) startet den automatischen Installer" true
   else
@@ -86,6 +88,7 @@ if [ "$KVM" = 1 ]; then
   fi
 fi
 
+if phase install; then
 # ---------------------------------------------------------------------------
 log "Phase 1: Vollautomatische Installation"
 # ---------------------------------------------------------------------------
@@ -94,12 +97,35 @@ xorriso -osirrox on -indev "$ISO" -extract /install.amd/vmlinuz vmlinuz \
 rm -f disk.qcow2
 qemu-img create -f qcow2 disk.qcow2 16G >/dev/null
 START=$(date +%s)
+: > install-serial.log
 timeout "$INSTALL_TIMEOUT" qemu-system-x86_64 "${ACCEL[@]}" -m 2048 -smp 2 -no-reboot \
   -display none -monitor none -serial file:install-serial.log \
   -drive file=disk.qcow2,if=virtio,format=qcow2 -cdrom "$ISO" \
   -kernel vmlinuz -initrd initrd.gz \
   -append "auto=true priority=critical preseed/file=/cdrom/preseed.cfg locale=de_DE.UTF-8 keymap=de console=ttyS0,115200n8 DEBIAN_FRONTEND=text --- console=ttyS0,115200n8" \
-  -netdev user,id=n0 -device virtio-net-pci,netdev=n0
+  -netdev user,id=n0 -device virtio-net-pci,netdev=n0 &
+QPID=$!
+# Watchdog: Fortschritt protokollieren, haengenden Installer (wartet auf Eingabe) erkennen
+LAST_SIZE=-1
+LAST_CHANGE=$(date +%s)
+STALL_LIMIT=$(( KVM == 1 ? 900 : 2700 ))
+while kill -0 $QPID 2>/dev/null; do
+  sleep 30
+  SIZE=$(stat -c %s install-serial.log 2>/dev/null || echo 0)
+  NOW=$(date +%s)
+  if [ "$SIZE" != "$LAST_SIZE" ]; then
+    LAST_SIZE=$SIZE
+    LAST_CHANGE=$NOW
+  elif [ $((NOW - LAST_CHANGE)) -gt "$STALL_LIMIT" ]; then
+    echo "!!! Keine Ausgabe des Installers seit $STALL_LIMIT s - vermutlich wartet er auf eine Eingabe"
+    kill $QPID 2>/dev/null
+    break
+  fi
+  if [ $(( (NOW - START) % 120 )) -lt 30 ]; then
+    echo "[$(( (NOW - START) / 60 )) min] $(strip_ansi install-serial.log | grep -aE '[[:alnum:]]{4}' | tail -n 1 | cut -c1-150)"
+  fi
+done
+wait $QPID
 RC=$?
 MIN=$(( ($(date +%s) - START) / 60 ))
 echo "Installation beendet nach $MIN Minuten (Exit $RC)"
@@ -122,6 +148,8 @@ if [ $RC -ne 0 ]; then
   exit 1
 fi
 result "Installation" "Vollautomatische Installation ohne Eingaben" true "($MIN min)"
+fi
+phase test || exit 0
 
 # ---------------------------------------------------------------------------
 log "Phase 2: Start des installierten Systems"

@@ -69,9 +69,22 @@ jobs:
           command -v pwsh || sudo snap install powershell --classic
           pwsh -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
 
-      - name: End-to-End-Test (Installation in QEMU + alle Protokolle)
+      - name: KVM verfuegbar?
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.e2e }}
-        run: sudo GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" WORK=/tmp/e2e tests/e2e/run.sh build/vpn-server-*-e2e.iso
+        continue-on-error: true
+        run: test -w /dev/kvm
+
+      - name: "E2E 1/3: Bootmenue-Test (BIOS, UEFI mit Secure Boot)"
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.e2e }}
+        run: sudo PHASES=boot WORK=/tmp/e2e tests/e2e/run.sh build/vpn-server-*-e2e.iso
+
+      - name: "E2E 2/3: Vollautomatische Installation in QEMU"
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.e2e }}
+        run: sudo PHASES=install WORK=/tmp/e2e tests/e2e/run.sh build/vpn-server-*-e2e.iso
+
+      - name: "E2E 3/3: Geraete- und Funktionstests"
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.e2e }}
+        run: sudo PHASES=test GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" WORK=/tmp/e2e tests/e2e/run.sh build/vpn-server-*-e2e.iso
 
       - name: Testprotokolle sichern
         if: ${{ always() && (github.event_name != 'workflow_dispatch' || inputs.e2e) }}
