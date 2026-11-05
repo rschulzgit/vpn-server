@@ -44,6 +44,8 @@ for tool in curl xorriso openssl sha256sum md5sum; do
 done
 
 mkdir -p "$OUT/cache"
+OUT="$(cd "$OUT" && pwd)"
+[ -n "$DEBIAN_ISO" ] && DEBIAN_ISO="$(readlink -f "$DEBIAN_ISO")"
 STAGE="$(mktemp -d "$OUT/stage.XXXXXX")"
 trap 'rm -rf "$STAGE"' EXIT
 

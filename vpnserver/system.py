@@ -134,13 +134,13 @@ def ddns_update(state: dict, force: bool = False) -> str:
         return "DynDNS ist deaktiviert."
     ip = detect_public_ip()
     if not ip:
-        cfg["last_result"] = "Oeffentliche IP konnte nicht ermittelt werden."
+        cfg["last_result"] = "Öffentliche IP konnte nicht ermittelt werden."
         return cfg["last_result"]
     if ip == cfg.get("last_ip") and not force:
-        return f"Unveraendert ({ip})."
+        return f"Unverändert ({ip})."
     url, auth = _ddns_url(cfg, ip)
     if not url.startswith("https://") and not url.startswith("http://"):
-        cfg["last_result"] = "Ungueltige Update-URL."
+        cfg["last_result"] = "Ungültige Update-URL."
         return cfg["last_result"]
     try:
         answer = _http_get(url, auth=auth)
@@ -165,7 +165,7 @@ def ddns_update(state: dict, force: bool = False) -> str:
 def letsencrypt_request(state: dict) -> tuple[bool, str]:
     host = state["server"].get("public_host", "")
     if not host or util.is_ip(host):
-        return False, "Fuer Let's Encrypt wird ein DNS-Name (z. B. DynDNS) als oeffentliche Adresse benoetigt."
+        return False, "Fuer Let's Encrypt wird ein DNS-Name (z. B. DynDNS) als öffentliche Adresse benötigt."
     if not util.have("certbot"):
         return False, "certbot ist nicht installiert."
     cmd = ["certbot", "certonly", "--standalone", "--non-interactive", "--agree-tos",
@@ -181,7 +181,7 @@ def letsencrypt_request(state: dict) -> tuple[bool, str]:
     err = (res.stderr or res.stdout or "").strip().splitlines()
     detail = " ".join(err[-6:])[:600]
     return False, ("Let's Encrypt fehlgeschlagen. Ist Port 80/TCP am Router auf diesen Server "
-                   "weitergeleitet und zeigt der DNS-Name auf Ihre oeffentliche IP? " + detail)
+                   "weitergeleitet und zeigt der DNS-Name auf Ihre öffentliche IP? " + detail)
 
 
 def le_cert_info() -> dict:
@@ -225,10 +225,10 @@ def set_network(dev: str, method: str, address: str = "", prefixlen: int = 24,
     Interface verzoegert neu."""
     info = network_info()
     if info["manager"] != "ifupdown":
-        raise ValueError("Die Netzwerkkonfiguration ist nur unter Debian (ifupdown) moeglich. "
+        raise ValueError("Die Netzwerkkonfiguration ist nur unter Debian (ifupdown) möglich. "
                          "Bitte eine DHCP-Reservierung im Router verwenden.")
     if not dev or "/" in dev or " " in dev:
-        raise ValueError("Ungueltiges Interface.")
+        raise ValueError("Ungültiges Interface.")
     lines = ["# Verwaltet von VPN-Server", "source /etc/network/interfaces.d/*", "",
              "auto lo", "iface lo inet loopback", "", f"auto {dev}"]
     if method == "static":
@@ -275,7 +275,7 @@ def restore_bytes(data: bytes) -> None:
     try:
         tar = tarfile.open(fileobj=io.BytesIO(data), mode="r:gz")
     except tarfile.TarError as exc:
-        raise ValueError("Keine gueltige Sicherungsdatei.") from exc
+        raise ValueError("Keine gültige Sicherungsdatei.") from exc
     with tar:
         names = tar.getnames()
         if "vpn-server/state.json" not in names:
@@ -285,7 +285,7 @@ def restore_bytes(data: bytes) -> None:
                     or m.name.startswith("vpn-server/")):
                 raise ValueError(f"Unerwarteter Eintrag in der Sicherung: {m.name}")
             if m.issym() or m.islnk() or m.isdev():
-                raise ValueError("Sicherung enthaelt unzulaessige Dateitypen.")
+                raise ValueError("Sicherung enthaelt unzulässige Dateitypen.")
         json.loads(tar.extractfile("vpn-server/state.json").read())
         # Aktuellen Stand sichern
         bdir = P("/var/backups")

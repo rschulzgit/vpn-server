@@ -82,7 +82,7 @@ def create_app() -> Flask:
         if request.method == "POST":
             token = request.form.get("csrf_token") or request.headers.get("X-CSRF-Token", "")
             if not token or not hmac.compare_digest(token, session.get("csrf", "")):
-                abort(400, "Ungueltiges CSRF-Token - bitte Seite neu laden.")
+                abort(400, "Ungültiges CSRF-Token - bitte Seite neu laden.")
         state = get_state()
         needs_setup = state["admin"].get("must_change") or not state["server"].get("setup_done")
         if needs_setup and request.endpoint not in SETUP_ENDPOINTS:
@@ -171,9 +171,9 @@ def create_app() -> Flask:
                 if len(pw1) < 10:
                     flash("Das Passwort muss mindestens 10 Zeichen lang sein.", "error")
                 elif pw1 != pw2:
-                    flash("Die Passwoerter stimmen nicht ueberein.", "error")
+                    flash("Die Passwörter stimmen nicht überein.", "error")
                 elif pw1 == state["admin"].get("initial_password"):
-                    flash("Bitte ein neues Passwort waehlen.", "error")
+                    flash("Bitte ein neues Passwort wählen.", "error")
                 else:
                     with st.locked():
                         s = st.load()
@@ -209,20 +209,20 @@ def create_app() -> Flask:
     def _validate_host_dns(host: str, dns: list[str]) -> list[str]:
         errors = []
         if not host or not util.valid_host(host):
-            errors.append("Bitte eine gueltige oeffentliche Adresse (DNS-Name oder IP) angeben.")
+            errors.append("Bitte eine gültige öffentliche Adresse (DNS-Name oder IP) angeben.")
         else:
             try:
                 ip = ipaddress.ip_address(host)
                 if ip.is_private:
                     errors.append("Die Adresse ist eine private (LAN-)IP. Clients aus dem Internet "
-                                  "benoetigen Ihre oeffentliche IP oder einen DynDNS-Namen.")
+                                  "benötigen Ihre öffentliche IP oder einen DynDNS-Namen.")
             except ValueError:
                 pass
         for d in dns:
             try:
                 ipaddress.ip_address(d)
             except ValueError:
-                errors.append(f"Ungueltiger DNS-Server: {d}")
+                errors.append(f"Ungültiger DNS-Server: {d}")
         return errors
 
     @app.route("/api/detect-ip", methods=["POST"])
@@ -256,7 +256,7 @@ def create_app() -> Flask:
         if state["letsencrypt"].get("enabled"):
             rows.append(("Let's Encrypt (Zertifikatserneuerung)", "TCP", 80))
         if state["server"].get("webui_public"):
-            rows.append(("Weboberflaeche (nicht empfohlen)", "TCP", state["server"]["webui_port"]))
+            rows.append(("Weboberfläche (nicht empfohlen)", "TCP", state["server"]["webui_port"]))
         return [{"label": l, "proto": p, "port": port} for l, p, port in rows]
 
     app.jinja_env.globals["port_forwards"] = port_forwards
@@ -269,12 +269,12 @@ def create_app() -> Flask:
         warnings = []
         host = state["server"].get("public_host", "")
         if host and util.is_ip(host) and state["ddns"].get("provider", "none") == "none":
-            warnings.append("Die oeffentliche Adresse ist eine IP-Adresse. Aendert Ihr Provider die "
+            warnings.append("Die öffentliche Adresse ist eine IP-Adresse. Ändert Ihr Provider die "
                             "IP (Zwangstrennung), funktionieren die Profile nicht mehr. Empfohlen: "
                             "DynDNS-Namen verwenden (Einstellungen -> DynDNS oder im Router).")
         for u in units:
-            if u["wanted"] and u["active"] != "active":
-                warnings.append(f"Dienst '{u['label']}' laeuft nicht ({u['active']}). Details unter Status.")
+            if u["wanted"] and u["active"] not in ("active", "unbekannt"):
+                warnings.append(f"Dienst '{u['label']}' läuft nicht ({u['active']}). Details unter Status.")
         if system.reboot_required():
             warnings.append("Nach Systemupdates ist ein Neustart erforderlich (System -> Neustart).")
         return render_template("dashboard.html", state=state, units=units, sessions=sessions,
@@ -349,7 +349,7 @@ def create_app() -> Flask:
                 pki.revoke_client(name)
             modify(do)
             ap.disconnect_client(name)
-            flash(f"Client '{name}' geloescht, Zertifikat gesperrt und Verbindungen getrennt.", "ok")
+            flash(f"Client '{name}' gelöscht, Zertifikat gesperrt und Verbindungen getrennt.", "ok")
             return redirect(url_for("clients"))
         if action == "toggle":
             def do(s):
@@ -364,14 +364,14 @@ def create_app() -> Flask:
                 flash("Client gesperrt. Das Zertifikat wurde widerrufen.", "ok")
             else:
                 flash("Client entsperrt. Zertifikatsbasierte Profile (OpenVPN, IKEv2-Zertifikat) "
-                      "muessen neu installiert werden.", "ok")
+                      "müssen neu installiert werden.", "ok")
         elif action == "reset-password":
             modify(lambda s: s["clients"][name].update(password=util.gen_password(16)))
             flash("Neues Passwort erzeugt.", "ok")
         elif action == "set-password":
             pw = request.form.get("password", "")
             if not util.valid_password(pw):
-                flash("Ungueltiges Passwort (8-64 Zeichen; erlaubt: A-Z a-z 0-9 - _ . : ! + = @ % ^ * ? , / ~).", "error")
+                flash("Ungültiges Passwort (8-64 Zeichen; erlaubt: A-Z a-z 0-9 - _ . : ! + = @ % ^ * ? , / ~).", "error")
             else:
                 modify(lambda s: s["clients"][name].update(password=pw))
                 flash("Passwort gespeichert.", "ok")
@@ -387,13 +387,13 @@ def create_app() -> Flask:
                 pki.revoke_client(name)
             modify(do)
             ap.disconnect_client(name)
-            flash("Neue Schluessel und Zertifikate erzeugt. Alle Profile muessen neu installiert werden.", "ok")
+            flash("Neue Schlüssel und Zertifikate erzeugt. Alle Profile müssen neu installiert werden.", "ok")
         elif action == "update":
             note = request.form.get("note", "").strip()[:100]
             full = request.form.get("tunnel", "full") == "full"
             modify(lambda s: s["clients"][name].update(note=note, full_tunnel=full))
             flash("Gespeichert. WireGuard- und OpenVPN-Profile bitte neu importieren, falls die "
-                  "Tunnel-Art geaendert wurde.", "ok")
+                  "Tunnel-Art geändert wurde.", "ok")
         elif action == "share":
             def do(s):
                 token = util.gen_token(24)
@@ -405,13 +405,13 @@ def create_app() -> Flask:
                 s = st.load()
                 do(s)
                 st.save(s)
-            flash(f"Teilen-Link erstellt (gueltig {SHARE_HOURS} Stunden).", "ok")
+            flash(f"Teilen-Link erstellt (gültig {SHARE_HOURS} Stunden).", "ok")
         elif action == "unshare":
             with st.locked():
                 s = st.load()
                 s["shares"] = {k: v for k, v in s["shares"].items() if v["client"] != name}
                 st.save(s)
-            flash("Teilen-Link geloescht.", "ok")
+            flash("Teilen-Link gelöscht.", "ok")
         else:
             abort(400)
         return redirect(url_for("client", name=name))
@@ -543,7 +543,7 @@ def create_app() -> Flask:
                 return old != host
             changed = modify(do)
             flash("Einstellungen gespeichert." + (
-                " Die oeffentliche Adresse wurde geaendert - alle Client-Profile muessen neu "
+                " Die öffentliche Adresse wurde geändert - alle Client-Profile müssen neu "
                 "verteilt werden." if changed else ""), "ok")
         elif section == "protocols":
             def do(s):
@@ -561,7 +561,7 @@ def create_app() -> Flask:
                     if value is None or value == "":
                         continue
                     if not util.valid_port(value):
-                        raise ValueError(f"Ungueltiger Port: {value}")
+                        raise ValueError(f"Ungültiger Port: {value}")
                     pr[p][key] = int(value)
                 pr["openvpn"]["udp"] = _bool(form, "openvpn_udp")
                 pr["openvpn"]["tcp"] = _bool(form, "openvpn_tcp")
@@ -575,8 +575,8 @@ def create_app() -> Flask:
                 tcp_ports.append(s["server"]["webui_port"])
                 tcp_ports += [22, 80, 1723]
                 if len(tcp_ports) != len(set(tcp_ports)):
-                    raise ValueError("TCP-Ports ueberschneiden sich (SSTP, OpenConnect, OpenVPN TCP, "
-                                     "Weboberflaeche, 22, 80, 1723 muessen verschieden sein).")
+                    raise ValueError("TCP-Ports überschneiden sich (SSTP, OpenConnect, OpenVPN TCP, "
+                                     "Weboberfläche, 22, 80, 1723 müssen verschieden sein).")
                 udp_ports = [500, 4500, 1701]
                 if pr["wireguard"]["enabled"]:
                     udp_ports.append(pr["wireguard"]["port"])
@@ -585,7 +585,7 @@ def create_app() -> Flask:
                 if pr["openconnect"]["enabled"]:
                     udp_ports.append(pr["openconnect"]["port"])
                 if len(udp_ports) != len(set(udp_ports)):
-                    raise ValueError("UDP-Ports ueberschneiden sich (500, 4500 und 1701 sind fuer "
+                    raise ValueError("UDP-Ports überschneiden sich (500, 4500 und 1701 sind für "
                                      "IPsec reserviert).")
                 mtu = form.get("wireguard_mtu", "").strip()
                 pr["wireguard"]["mtu"] = int(mtu) if mtu.isdigit() and 1280 <= int(mtu) <= 1500 else 0
@@ -603,14 +603,14 @@ def create_app() -> Flask:
                     if not value or value == pr[p][key]:
                         continue
                     if not util.valid_ipv4_subnet(value):
-                        raise ValueError(f"Ungueltiges Subnetz: {value} (IPv4, /16 bis /28)")
+                        raise ValueError(f"Ungültiges Subnetz: {value} (IPv4, /16 bis /28)")
                     pr[p][key] = value
                     wg_changed |= p == "wireguard"
                 nets = [ipaddress.ip_network(n) for n in st.vpn_subnets(s)]
                 for i, a in enumerate(nets):
                     for b in nets[i + 1:]:
                         if a.overlaps(b):
-                            raise ValueError(f"Subnetze ueberschneiden sich: {a} / {b}")
+                            raise ValueError(f"Subnetze überschneiden sich: {a} / {b}")
                 if wg_changed:
                     st.renumber_wireguard(s)
             modify(do)
@@ -622,7 +622,7 @@ def create_app() -> Flask:
             if not util.valid_password(psk) or len(psk) < 12:
                 raise ValueError("Der IPsec-PSK muss 12-64 Zeichen lang sein (A-Z a-z 0-9 - _ . : ! + = @ % ^ * ? , / ~).")
             modify(lambda s: s["proto"].update(ipsec_psk=psk))
-            flash("IPsec-PSK gespeichert. L2TP- und Cisco-IPsec-Clients muessen angepasst werden.", "ok")
+            flash("IPsec-PSK gespeichert. L2TP- und Cisco-IPsec-Clients müssen angepasst werden.", "ok")
         elif section == "ddns":
             provider = form.get("provider", "none")
             if provider not in system.DDNS_PROVIDERS:
@@ -690,7 +690,7 @@ def create_app() -> Flask:
                 elif len(request.form.get("password", "")) < 10:
                     flash("Das neue Passwort muss mindestens 10 Zeichen lang sein.", "error")
                 elif request.form.get("password") != request.form.get("password2"):
-                    flash("Die Passwoerter stimmen nicht ueberein.", "error")
+                    flash("Die Passwörter stimmen nicht überein.", "error")
                 else:
                     pw = request.form["password"]
                     with st.locked():
@@ -699,7 +699,7 @@ def create_app() -> Flask:
                         st.save(s)
                     if request.form.get("system_too"):
                         system.set_system_password("vpnadmin", pw)
-                    flash("Passwort geaendert.", "ok")
+                    flash("Passwort geändert.", "ok")
             elif action == "network":
                 try:
                     method = request.form.get("method", "dhcp")
@@ -725,7 +725,7 @@ def create_app() -> Flask:
             elif action == "restore":
                 upload = request.files.get("backup")
                 if not upload:
-                    flash("Keine Datei ausgewaehlt.", "error")
+                    flash("Keine Datei ausgewählt.", "error")
                 else:
                     try:
                         with st.locked():

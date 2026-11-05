@@ -151,3 +151,10 @@ details summary { cursor: pointer; font-weight: 600; }
 .danger-zone { border-color: var(--err); }
 .hidden { display: none !important; }
 footer { text-align: center; color: var(--muted); font-size: .85rem; padding: 1rem; }
+@media (max-width: 700px) {
+  .nav-inner { flex-wrap: nowrap; overflow-x: auto; gap: .9rem; -webkit-overflow-scrolling: touch; }
+  .nav a.item, .nav button.link, .brand { white-space: nowrap; }
+  .nav a.item { padding: .8rem .1rem; }
+  .nav .spacer { display: none; }
+  main { padding-top: 16px; }
+}

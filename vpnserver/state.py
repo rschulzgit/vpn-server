@@ -96,7 +96,7 @@ def default_state() -> dict:
 
 
 def _merge_defaults(state: dict, defaults: dict) -> dict:
-    """Ergaenzt fehlende Schluessel (z. B. nach einem Update) rekursiv."""
+    """Ergaenzt fehlende Schlüssel (z. B. nach einem Update) rekursiv."""
     for key, value in defaults.items():
         if key not in state:
             state[key] = copy.deepcopy(value)
@@ -114,7 +114,7 @@ _thread_lock = threading.RLock()
 
 @contextlib.contextmanager
 def locked():
-    """Exklusive Sperre fuer Lese-Aenderungs-Schreib-Zyklen (Threads + Prozesse)."""
+    """Exklusive Sperre für Lese-Änderungs-Schreib-Zyklen (Threads + Prozesse)."""
     with _thread_lock:
         lockfile = P(util.ETC + "/.lock")
         os.makedirs(os.path.dirname(lockfile), exist_ok=True)
@@ -212,7 +212,7 @@ def wg_server_ip(state: dict) -> str:
 
 
 def renumber_wireguard(state: dict) -> None:
-    """Vergibt alle WireGuard-Adressen neu (nach Aenderung des Subnetzes)."""
+    """Vergibt alle WireGuard-Adressen neu (nach Änderung des Subnetzes)."""
     for client in state["clients"].values():
         client["wg"]["ip"] = ""
     for client in state["clients"].values():
@@ -222,12 +222,12 @@ def renumber_wireguard(state: dict) -> None:
 def new_client(state: dict, name: str, password: str | None = None, note: str = "",
                full_tunnel: bool = True) -> dict:
     if not util.valid_client_name(name):
-        raise ValueError("Ungueltiger Name: erlaubt sind a-z, 0-9 und '-' (max. 31 Zeichen), "
+        raise ValueError("Ungültiger Name: erlaubt sind a-z, 0-9 und '-' (max. 31 Zeichen), "
                          "beginnend mit Buchstabe oder Ziffer.")
     if name in state["clients"]:
         raise ValueError(f"Ein Client mit dem Namen '{name}' existiert bereits.")
     if password is not None and password != "" and not util.valid_password(password):
-        raise ValueError("Ungueltiges Passwort (8-64 Zeichen; erlaubt: A-Z a-z 0-9 - _ . : ! + = @ % ^ * ? , / ~).")
+        raise ValueError("Ungültiges Passwort (8-64 Zeichen; erlaubt: A-Z a-z 0-9 - _ . : ! + = @ % ^ * ? , / ~).")
     priv, pub = wg_keypair()
     client = {
         "name": name,
@@ -264,7 +264,7 @@ def any_ppp(state: dict) -> bool:
 
 
 def public_host(state: dict) -> str:
-    """Oeffentliche Adresse fuer Client-Profile (Fallback: LAN-IP)."""
+    """Öffentliche Adresse für Client-Profile (Fallback: LAN-IP)."""
     host = state["server"].get("public_host", "").strip()
     if host:
         return host
