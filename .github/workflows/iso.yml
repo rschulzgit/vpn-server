@@ -61,7 +61,7 @@ jobs:
             echo "=== Versionen ==="
             swanctl --version | head -1; openvpn --version | head -1; ocserv --version | head -1
             wg --version; accel-cmd --help >/dev/null 2>&1 || true; ls -la /usr/sbin/accel-pppd
-            python3 -c "import flask, qrcode, cryptography, gunicorn; print("Flask", flask.__version__ if hasattr(flask, "__version__") else "?", "cryptography", cryptography.__version__)"
+            python3 -c "import flask, qrcode, cryptography, gunicorn, jinja2; print(cryptography.__version__, jinja2.__version__)"
             echo "=== Unit-Tests mit Debian-13-Python ==="
             apt-get install -y -qq python3-pytest >/dev/null
             cd /tmp/vpn && python3 -m pytest -q tests
