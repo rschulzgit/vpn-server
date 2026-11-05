@@ -50,6 +50,29 @@ jobs:
             --debian-iso "$(ls build/cache/debian-13*-netinst.iso)"
           ls -la build
 
+      - name: Schnelltest install.sh in Debian-13-Container
+        run: |
+          docker run --rm --cap-add NET_ADMIN -v "$PWD:/src:ro" debian:trixie bash -ec '
+            cp -a /src /tmp/vpn
+            mkdir -p /tmp/vpn/payload
+            cp /src/build/accel/accel-ppp.deb /tmp/vpn/payload/
+            apt-get update -qq
+            bash /tmp/vpn/installer/install.sh --iso
+            echo "=== Versionen ==="
+            swanctl --version | head -1; openvpn --version | head -1; ocserv --version | head -1
+            wg --version; accel-cmd --help >/dev/null 2>&1 || true; ls -la /usr/sbin/accel-pppd
+            python3 -c "import flask, qrcode, cryptography, gunicorn; print("Flask", flask.__version__ if hasattr(flask, "__version__") else "?", "cryptography", cryptography.__version__)"
+            echo "=== Unit-Tests mit Debian-13-Python ==="
+            apt-get install -y -qq python3-pytest >/dev/null
+            cd /tmp/vpn && python3 -m pytest -q tests
+            echo "=== Konfiguration erzeugen und mit Debian-13-Werkzeugen pruefen ==="
+            export VPNSERVER_DRYRUN=1 PYTHONPATH=/opt/vpn-server
+            python3 -m vpnserver.cli init --password Test123456 --public-host vpn.example.org
+            python3 -m vpnserver.cli client add handy >/dev/null
+            ocserv -t -c /etc/ocserv/ocserv.conf
+            nft -c -f /etc/nftables.conf && echo "nftables OK"
+          '
+
       - name: KVM aktivieren
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.e2e }}
         run: |

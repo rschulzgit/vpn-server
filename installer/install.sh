@@ -26,6 +26,11 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+# Gesamte Ausgabe zusaetzlich protokollieren (im ISO-Installer landet stdout sonst im Installer-Syslog)
+mkdir -p /var/log
+exec > >(tee -a /var/log/vpn-server-install.log) 2>&1
+echo "=== VPN-Server-Installation $(date -Is) (Modus: $MODE) ==="
+
 log() { echo -e "\033[1;34m>>>\033[0m $*"; }
 warn() { echo -e "\033[1;33m!!!\033[0m $*" >&2; }
 
@@ -64,6 +69,14 @@ PACKAGES=(
   # Weboberflaeche
   python3 python3-flask python3-jinja2 python3-qrcode python3-cryptography python3-gunicorn
 )
+MISSING=()
+for pkg in "${PACKAGES[@]}"; do
+  apt-cache show "$pkg" >/dev/null 2>&1 || MISSING+=("$pkg")
+done
+if [ ${#MISSING[@]} -gt 0 ]; then
+  echo "FEHLER: Pakete nicht verfuegbar: ${MISSING[*]}" >&2
+  exit 100
+fi
 log "Installiere Pakete"
 apt-get install "${APT_OPTS[@]}" --no-install-recommends "${PACKAGES[@]}"
 # ocserv startet nach der Installation mit Standardport 443 -> stoppen, vpnctl konfiguriert es

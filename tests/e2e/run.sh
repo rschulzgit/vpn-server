@@ -46,16 +46,20 @@ log "Phase 0: Bootmenue (BIOS und UEFI mit Secure Boot)"
 # ---------------------------------------------------------------------------
 boot_menu_test() {  # Name, QEMU-Firmware-Argumente ...
   local name="$1"; shift
-  rm -f "boot-$name.pcap" "mon-$name.sock"
+  rm -f "boot-$name.pcap" "mon-$name.sock" "boot-$name.qcow2"
+  qemu-img create -f qcow2 "boot-$name.qcow2" 8G >/dev/null
   qemu-system-x86_64 "${ACCEL[@]}" -m 2048 -smp 2 "$@" -display none -cdrom "$ISO" \
+    -drive "file=$WORK/boot-$name.qcow2,if=virtio,format=qcow2" \
     -serial "file:$WORK/boot-$name-serial.log" \
     -netdev user,id=n0 -device virtio-net-pci,netdev=n0 \
     -object "filter-dump,id=f0,netdev=n0,file=$WORK/boot-$name.pcap" \
     -monitor "unix:$WORK/mon-$name.sock,server,nowait" -daemonize -pidfile "$WORK/qemu-$name.pid" || return 1
   sleep 15; sendkey "$WORK/mon-$name.sock" ret
   sleep 10; sendkey "$WORK/mon-$name.sock" ret
+  # Erfolg: Installer hat Bootmenue + Preseed durchlaufen, partitioniert und laedt das
+  # Basissystem vom Debian-Spiegel (deb.debian.org)
   local ok=1
-  for _ in $(seq 1 60); do
+  for _ in $(seq 1 72); do
     if python3 - "$WORK/boot-$name.pcap" <<'EOF'
 import sys
 d = open(sys.argv[1], "rb").read()
@@ -68,6 +72,7 @@ EOF
   show_screen "$WORK/boot-$name-serial.log"
   kill "$(cat "$WORK/qemu-$name.pid")" 2>/dev/null
   sleep 2
+  rm -f "boot-$name.qcow2"
   return $ok
 }
 
@@ -152,7 +157,7 @@ if qemu-nbd -c /dev/nbd0 disk.qcow2 >/dev/null 2>&1; then
   fi
   qemu-nbd -d /dev/nbd0 >/dev/null 2>&1
 fi
-[ -f install.log ] && { echo "--- Ende von /var/log/vpn-server-install.log ---"; tail -n 25 install.log; }
+[ -s install.log ] && { echo "--- Ende von /var/log/vpn-server-install.log ---"; tail -n 40 install.log; }
 if [ $RC -ne 0 ]; then
   show_screen install-serial.log
   [ -f installer-syslog.log ] && grep -iE "error|fail|late_command" installer-syslog.log | tail -40
