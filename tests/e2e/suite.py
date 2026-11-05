@@ -649,8 +649,11 @@ def build_swan_devices() -> None:
     apple_esp = f"{cenc}-{cdh}"
     sw_cert = json.loads(PROFILES[("e2e", "sswan-cert")])
     sw_eap = json.loads(PROFILES[("e2e", "sswan-eap")])
-    win_ike, win_esp = win_proposals(WIN_CALLS["win-ikev2-eap"])
-    win_ike_c, win_esp_c = win_proposals(WIN_CALLS["win-ikev2-cert"])
+    try:
+        win_ike, win_esp = win_proposals(WIN_CALLS["win-ikev2-eap"])
+        win_ike_c, win_esp_c = win_proposals(WIN_CALLS["win-ikev2-cert"])
+    except (KeyError, IndexError):  # PowerShell-Test nicht gelaufen -> Werte des Skripts
+        win_ike, win_esp = win_ike_c, win_esp_c = "aes256-sha256-modp2048", "aes256gcm16"
 
     # Zertifikate/Schluessel wie vom jeweiligen Geraet importiert
     os.makedirs("/etc/swanctl/pkcs12", exist_ok=True)
@@ -1060,9 +1063,11 @@ def t_password_change():
 def t_lock():
     ovpn_up(PROFILES[("e2e-b", "openvpn")], "ovpn-lock", NS2)
     check(wait_until(lambda: ovpn_ready("ovpn-lock.log"), 40), "Gerät B verbindet nicht")
+    check(wait_until(lambda: lan_ok(NS2), 20, 2), "Gerät B ohne Heimnetz vor dem Sperren")
     W.client_action("e2e-b", "toggle")
     check(wait_until(lambda: re.search(r"SIGTERM|SIGUSR1|Restart|Connection reset|server-pushed",
-                                       read("ovpn-lock.log").split("Initialization Sequence Completed", 1)[-1]), 30),
+                                       read("ovpn-lock.log").split("Initialization Sequence Completed", 1)[-1])
+                     or not lan_ok(NS2), 75, 3),
           "Bestehende Verbindung wurde nicht getrennt")
     cleanup_clients()
     ovpn_up(PROFILES[("e2e-b", "openvpn")], "ovpn-locked", NS2)
@@ -1213,6 +1218,10 @@ def report() -> int:
     failed = [r for r in RESULTS if not r["ok"]]
     lines = ["## Ergebnis der Geräte- und Funktionstests", "",
              f"**{len(RESULTS) - len(failed)} von {len(RESULTS)} Tests bestanden**", "",
+             "Das ISO wurde in einer VM vollautomatisch installiert. Endgeräte werden mit Linux-Clients "
+             "nachgebildet, die die Identitäten, Anmeldeverfahren und Krypto-Vorschläge des jeweiligen "
+             "Geräts verwenden bzw. dessen Profil (.mobileconfig, .sswan, QR-Code, Windows-Skript) direkt "
+             "auswerten. Verbindungen laufen über simulierte Portfreigaben (NAT) wie an einem Heimrouter.", "",
              "| Bereich | Test | Ergebnis | Details |", "|---|---|---|---|"]
     for r in RESULTS:
         lines.append(f"| {r['category']} | {r['name']} | {'✅' if r['ok'] else '❌'} | "

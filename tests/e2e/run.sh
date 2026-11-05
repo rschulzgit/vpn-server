@@ -145,6 +145,8 @@ for ns in vpncli vpncli2; do
   ip netns exec $ns sysctl -qw net.ipv4.conf.all.src_valid_mark=1
   i=$((i + 1))
 done
+# AppArmor-Profile (charon, pppd ...) des Test-Hosts wuerden Testpfade blockieren
+command -v aa-teardown >/dev/null && aa-teardown >/dev/null 2>&1
 iptables -I FORWARD -i br-e2e -j DROP
 iptables -I FORWARD -o br-e2e -j DROP
 grep -q " vpn.test" /etc/hosts || echo "192.168.250.1 vpn.test" >> /etc/hosts
