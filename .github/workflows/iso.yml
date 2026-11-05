@@ -51,7 +51,7 @@ jobs:
           ls -la build
 
       - name: KVM aktivieren
-        if: ${{ inputs.e2e != false }}
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.e2e }}
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
@@ -59,7 +59,7 @@ jobs:
           ls -la /dev/kvm || echo "kein /dev/kvm"
 
       - name: Testwerkzeuge installieren
-        if: ${{ inputs.e2e != false }}
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.e2e }}
         run: |
           sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils wireguard-tools \
             openvpn openconnect strongswan-swanctl charon-systemd libcharon-extauth-plugins \
@@ -67,7 +67,7 @@ jobs:
           sudo systemctl stop strongswan xl2tpd openvpn || true
 
       - name: End-to-End-Test (Installation in QEMU + alle Protokolle)
-        if: ${{ inputs.e2e != false }}
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.e2e }}
         run: sudo WORK=/tmp/e2e tests/e2e/run.sh build/vpn-server-*-e2e.iso
 
       - name: Diagnose

@@ -125,6 +125,9 @@ def openvpn_ovpn(state: dict, client: dict) -> str:
         lines.append(f"remote {host} {ov['tcp_port']} tcp")
     if ov.get("udp") and not ov.get("tcp"):
         lines.append("explicit-exit-notify 1")
+    if ov.get("udp") and ov.get("tcp"):
+        # Schnell auf TCP ausweichen, wenn UDP blockiert ist (Hotel-/Firmen-WLAN)
+        lines.append("server-poll-timeout 10")
     if not client.get("full_tunnel", True):
         lines.append('pull-filter ignore "redirect-gateway"')
         for r in split_routes(state):
@@ -266,8 +269,8 @@ exit /b
 """
 
 _PS_ADMIN = """$ErrorActionPreference = 'Stop'
-$principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
-if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+$isAdmin = (New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $isAdmin) {
     Write-Host 'Bitte mit Rechtsklick -> Als Administrator ausfuehren starten!' -ForegroundColor Red
     return
 }
