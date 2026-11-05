@@ -61,14 +61,32 @@ jobs:
       - name: Testwerkzeuge installieren
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.e2e }}
         run: |
-          sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils wireguard-tools \
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils ovmf wireguard-tools \
             openvpn openconnect strongswan-swanctl charon-systemd libcharon-extauth-plugins \
-            libcharon-extra-plugins sstp-client xl2tpd ppp sshpass curl
+            libcharon-extra-plugins libstrongswan-extra-plugins sstp-client xl2tpd ppp sshpass curl \
+            zbar-tools librsvg2-bin bind9-dnsutils iptables
           sudo systemctl stop strongswan xl2tpd openvpn || true
+          command -v pwsh || sudo snap install powershell --classic
+          pwsh -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
 
       - name: End-to-End-Test (Installation in QEMU + alle Protokolle)
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.e2e }}
-        run: sudo WORK=/tmp/e2e tests/e2e/run.sh build/vpn-server-*-e2e.iso
+        run: sudo GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" WORK=/tmp/e2e tests/e2e/run.sh build/vpn-server-*-e2e.iso
+
+      - name: Testprotokolle sichern
+        if: ${{ always() && (github.event_name != 'workflow_dispatch' || inputs.e2e) }}
+        run: |
+          mkdir -p e2e-logs
+          sudo sh -c 'cp /tmp/e2e/*.log /tmp/e2e/*.jsonl /tmp/e2e/results.* /tmp/e2e/*.calls.json e2e-logs/ 2>/dev/null; true'
+          sudo chown -R "$USER" e2e-logs
+
+      - name: Testprotokolle hochladen
+        if: ${{ always() && (github.event_name != 'workflow_dispatch' || inputs.e2e) }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-protokolle
+          path: e2e-logs/
+          retention-days: 7
 
       - name: Diagnose
         if: failure()

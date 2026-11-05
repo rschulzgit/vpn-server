@@ -17,7 +17,7 @@ import urllib.parse
 import urllib.request
 
 from . import pki, util
-from .util import P, log
+from .util import P
 
 ISSUE_FILE = "/etc/issue"
 UPDATE_LOG = "/var/log/vpn-server-update.log"

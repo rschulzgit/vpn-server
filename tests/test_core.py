@@ -79,7 +79,6 @@ def test_client_p12_and_revocation(srv):
     san = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
     assert san.get_values_for_type(x509.DNSName) == ["handy"]
     # Sperren
-    tmp = st.default_state()
     serial = pki.issue_client_cert("wegdamit")
     pki.revoke_client("wegdamit")
     crl = x509.load_pem_x509_crl(read(pki.CRL).encode())

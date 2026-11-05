@@ -52,7 +52,6 @@ def server_name(state: dict) -> str:
 
 def wireguard_conf(state: dict, client: dict) -> str:
     wg = state["proto"]["wireguard"]
-    prefix = ipaddress.ip_network(wg["subnet"]).prefixlen  # noqa: F841 (Info)
     allowed = "0.0.0.0/0, ::/0" if client.get("full_tunnel", True) else ", ".join(split_routes(state))
     lines = [
         "[Interface]",
