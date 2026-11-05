@@ -52,8 +52,25 @@ if [ ! -f disk.qcow2 ] || [ "${REINSTALL:-1}" = 1 ]; then
     -netdev user,id=n0 -device virtio-net-pci,netdev=n0
   RC=$?
   echo "Installation beendet nach $(( ($(date +%s) - START) / 60 )) Minuten (Exit $RC)"
+  # Installationsprotokoll aus dem Abbild lesen (auch bei Erfolg, zur Kontrolle)
+  modprobe nbd max_part=8 >/dev/null 2>&1
+  if qemu-nbd -c /dev/nbd0 disk.qcow2 >/dev/null 2>&1; then
+    sleep 2
+    mkdir -p /mnt/e2e
+    if mount -o ro /dev/nbd0p1 /mnt/e2e 2>/dev/null; then
+      cp /mnt/e2e/var/log/vpn-server-install.log install.log 2>/dev/null
+      cp /mnt/e2e/var/log/installer/syslog installer-syslog.log 2>/dev/null
+      umount /mnt/e2e
+    fi
+    qemu-nbd -d /dev/nbd0 >/dev/null 2>&1
+  fi
+  if [ -f install.log ]; then
+    echo "--- Ende von /var/log/vpn-server-install.log ---"
+    tail -n 25 install.log
+  fi
   if [ $RC -ne 0 ]; then
     tail -c 4000 install-serial.log | sed 's/\x1b\[[0-9;?]*[A-Za-z]//g'
+    [ -f installer-syslog.log ] && grep -iE "error|fail|late_command" installer-syslog.log | tail -40
     echo "Installation fehlgeschlagen oder Zeitueberschreitung"
     exit 1
   fi
