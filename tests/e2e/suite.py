@@ -587,6 +587,7 @@ def wg_up(conf: str, name: str = "wg-a", ns: str = NS) -> subprocess.CompletedPr
 
 @test("Android / iPhone", "WireGuard-App: QR-Code scannen, gesamter Verkehr über VPN")
 def t_wg_qr():
+    write("resolvconf.log", "")
     r = wg_up(PROFILES["wg-from-qr"])
     check(r.returncode == 0, f"wg-quick: {r.stderr[-300:]}")
     errors = tunnel_checks()
@@ -814,15 +815,15 @@ def write_swanctl() -> None:
     id = e2e
     secret = "{eap_pw}"
   }}
-  private-dl {{
+  pkcs12-dl {{
     file = dl.p12
     secret = "{c['ikev2']['p12_password']}"
   }}
-  private-apple {{
+  pkcs12-apple {{
     file = apple.p12
     secret = "{c['ikev2']['p12_password']}"
   }}
-  private-sswan {{
+  pkcs12-sswan {{
     file = sswan.p12
     secret = "{c['ikev2']['p12_password']}"
   }}
@@ -852,7 +853,7 @@ def charon_start() -> None:
     resolve {{
       file = {WORK}/ipsec-resolv.conf
       resolvconf {{
-        path = /nonexistent
+        path = {WORK}/fakebin/resolvconf
       }}
     }}
   }}
@@ -875,6 +876,7 @@ def swan_reload() -> None:
 def make_swan_test(dev: dict):
     def fn():
         write("ipsec-resolv.conf", "")
+        write("resolvconf.log", "")
         r = nsx(f"timeout 45 swanctl --initiate --child {dev['key']}", timeout=60)
         if r.returncode != 0:
             raise Fail("Verbindung fehlgeschlagen: " + " | ".join(
@@ -884,7 +886,8 @@ def make_swan_test(dev: dict):
         check(vip, f"Keine virtuelle IP zugewiesen: {sas[:300]}")
         errors = tunnel_checks()
         check(not errors, ", ".join(errors))
-        check(DNS in read("ipsec-resolv.conf"), "DNS-Server nicht per IKE übermittelt")
+        check(DNS in read("ipsec-resolv.conf") + read("resolvconf.log"),
+              "DNS-Server nicht per IKE übermittelt")
         check(session_seen("e2e", dev["status"]), f"Nicht als '{dev['status']}' in der Statusanzeige")
         nsx(f"swanctl --terminate --ike {dev['key']} --force")
         return f"(VIP {vip.group(1)}, IKE {dev['ike'].split(',')[0]})"
