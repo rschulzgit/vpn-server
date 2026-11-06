@@ -421,3 +421,5 @@ td code { word-break: normal; white-space: nowrap; }
   .dash > .tile.span-3 { padding: .3rem 0 1rem; }
   .card-head .legend { flex: 1 1 100%; margin-left: 0; }
 }
+.muted-link { color: var(--muted); text-decoration: underline; text-underline-offset: 2px; }
+.muted-link:hover { color: var(--text); }

@@ -4,6 +4,8 @@ Ein bootfähiges Installations-ISO (Basis: **Debian 13 „trixie“**), das eine
 VPN-Server vollautomatisch installiert. Danach erfolgt alles über eine deutschsprachige
 Weboberfläche – Sie müssen am Router nur noch die angezeigten **Portfreigaben** einrichten.
 
+Freie Software unter der **GPL-3.0-or-later** (siehe [Lizenz](#lizenz)).
+
 ## Unterstützte Protokolle
 
 | Protokoll | Server-Software | Clients (Auswahl) | Anmeldung |
@@ -12,9 +14,9 @@ Weboberfläche – Sie müssen am Router nur noch die angezeigten **Portfreigabe
 | **OpenVPN** UDP + TCP | OpenVPN 2.6 | OpenVPN Connect, OpenVPN for Android, Tunnelblick, NetworkManager | Zertifikat (in `.ovpn`) |
 | **IKEv2/IPsec** | strongSwan | Android ohne App („IKEv2/IPSec **PSK**“, „**RSA**“ = Zertifikat, „MSCHAPv2“), iOS/macOS (Profil `.mobileconfig`), Windows (Einrichtungsskript), strongSwan-App (`.sswan`) | Zertifikat, PSK oder Benutzer/Passwort |
 | **L2TP/IPsec** | strongSwan + accel-ppp | Windows, macOS, iOS, Android ≤ 11 | PSK + Benutzer/Passwort |
-| **Cisco IPsec** (IKEv1 XAuth) | strongSwan | iOS/macOS „IPsec“, Android ≤ 11 | PSK + Benutzer/Passwort |
+| **IPsec XAuth** („Cisco IPsec“ in iOS/macOS, IKEv1) | strongSwan | iOS/macOS „IPsec“, Android ≤ 11 | PSK + Benutzer/Passwort |
 | **SSTP** | accel-ppp | Windows (eingebaut), Open SSTP Client (Android), sstp-client (Linux) | Benutzer/Passwort |
-| **OpenConnect / Cisco AnyConnect** | ocserv | Cisco Secure Client, OpenConnect | Benutzer/Passwort |
+| **OpenConnect** (AnyConnect-kompatibel) | ocserv | OpenConnect, Cisco Secure Client | Benutzer/Passwort |
 | **PPTP** (aus, unsicher) | accel-ppp | ältere Geräte | Benutzer/Passwort |
 
 Für jeden angelegten Client erzeugt der Server automatisch alle Zugangsdaten und Profile
@@ -95,7 +97,7 @@ Die Weboberfläche zeigt die exakt benötigte Liste. Standard (alle Protokolle a
 | OpenVPN (TCP-Fallback) | TCP | 1194 |
 | IPsec (IKEv2, L2TP/IPsec, Cisco IPsec) | UDP | 500 und 4500 |
 | SSTP | TCP | 443 |
-| OpenConnect / AnyConnect | TCP + UDP | 4443 |
+| OpenConnect (AnyConnect-kompatibel) | TCP + UDP | 4443 |
 | *PPTP (nur falls aktiviert)* | *TCP 1723 + GRE* | |
 | *Let's Encrypt (nur falls aktiviert)* | *TCP* | *80* |
 
@@ -164,6 +166,19 @@ leitet andere an den externen Server weiter und übersetzt die VLAN-Zuweisung f�
 (Gruppe), accel-ppp (Adresspool) und ocserv (Gruppe). Accounting wird sofort lokal bestätigt und
 an den externen Server kopiert, damit ein nicht erreichbarer Accounting-Server keine Verbindung
 trennt.
+
+## Software-Update
+
+*System → Software-Update* aktualisiert die Anwendung aus diesem Repository – standardmäßig auf
+das **neueste Release** (geprüfte Stände, kein Token nötig). Alternativ kann ein Branch gewählt
+werden; für private Forks bzw. Repositorys lässt sich optional ein GitHub-Token (nur Lesezugriff)
+hinterlegen. Ablauf: Download → Prüfung → Sicherung des bisherigen Stands → Installation (inkl.
+neuer Pakete und Dienste) → Funktionsprüfung. Schlägt etwas fehl, wird der vorherige Stand
+automatisch wiederhergestellt; manuell geht das jederzeit per „Vorherige Version wiederherstellen“.
+Auf Wunsch prüft der Server täglich und installiert Updates automatisch. Einstellungen, Clients
+und Schlüssel bleiben dabei erhalten. Kommandozeile: `vpnctl update check|install|rollback|status`.
+
+Sicherheitsupdates des Betriebssystems installiert Debian unabhängig davon automatisch.
 
 ## Kommandozeile (`vpnctl`)
 
@@ -240,3 +255,38 @@ installer/            install.sh, accel-ppp-Build, systemd-Units
 iso/                  ISO-Bau (Debian-Netinst + Preseed + Bootmenü)
 tests/                Unit-Tests und End-to-End-Test (QEMU)
 ```
+
+## Mitwirken
+
+Fehlerberichte, Vorschläge und Pull Requests sind willkommen – Ablauf, Tests (pytest, shellcheck)
+und die End-to-End-Prüfung in der CI beschreibt [CONTRIBUTING.md](CONTRIBUTING.md). Beiträge
+werden unter der GPL-3.0-or-later veröffentlicht. Sicherheitslücken bitte vertraulich melden:
+[SECURITY.md](SECURITY.md).
+
+## Projekt unterstützen
+
+Wenn Ihnen das Projekt nützt, können Sie die Weiterentwicklung über
+[GitHub Sponsors](https://github.com/sponsors/rschulzgit) unterstützen.
+
+## Lizenz
+
+Copyright (C) 2026 rschulzgit und Mitwirkende.
+
+VPN-Server ist freie Software: Sie können es unter den Bedingungen der
+[GNU General Public License](LICENSE), Version 3 oder (nach Ihrer Wahl) jeder späteren Version,
+weitergeben und/oder verändern (SPDX: `GPL-3.0-or-later`). Die Software wird ohne jede
+Gewährleistung bereitgestellt.
+
+Im ISO enthaltene bzw. bei der Installation geladene Fremdkomponenten (Debian, accel-ppp,
+strongSwan, OpenVPN, WireGuard-Tools, ocserv, FreeRADIUS u. a.), ihre Lizenzen und Quellen:
+[THIRD_PARTY.md](THIRD_PARTY.md).
+
+### Name und Logo
+
+Der Name „VPN-Server“ und das Logo dürfen nur für **unveränderte Originalversionen** verwendet
+werden. Veränderte Versionen und Forks müssen einen **anderen Namen und ein anderes Logo**
+verwenden. Details: [TRADEMARKS.md](TRADEMARKS.md) (keine Rechtsberatung).
+
+Genannte Marken Dritter (z. B. Windows, macOS, iOS, Android, FRITZ!Box, Cisco/AnyConnect,
+WireGuard, OpenVPN) gehören ihren Inhabern; sie werden nur beschreibend verwendet, eine Verbindung
+zu den Inhabern besteht nicht.

@@ -33,12 +33,12 @@
     <dt>IKEv2: Anmeldung</dt><dd>Benutzername/Passwort (EAP-MSCHAPv2), CA-Zertifikat <code>{{ info.ca_cn }}</code> installieren</dd>{% endif %}
     {% if enabled(state, 'l2tp') or enabled(state, 'ikev1_xauth') %}{{ kv('L2TP / Cisco IPsec: Shared Secret', info.psk) }}{% endif %}
     {% if enabled(state, 'sstp') %}{{ kv('SSTP', info.sstp_addr) }}{% endif %}
-    {% if enabled(state, 'openconnect') %}{{ kv('OpenConnect / AnyConnect', info.oc_addr) }}
+    {% if enabled(state, 'openconnect') %}{{ kv('OpenConnect (AnyConnect-kompatibel)', info.oc_addr) }}
     {% if not info.le %}{{ kv('OpenConnect: Zertifikats-Pin', info.pin) }}{% endif %}{% endif %}
   </dl>
   <ul>
     {% if enabled(state, 'ikev2') %}<li><strong>Android 11+ ohne App:</strong> Einstellungen → VPN → hinzufügen → Typ „IKEv2/IPSec MSCHAPv2“, Server und IPSec-ID wie oben, CA-Zertifikat vorher unter Sicherheit → Zertifikat installieren.</li>{% endif %}
-    {% if enabled(state, 'openconnect') %}<li><strong>OpenConnect / Cisco Secure Client:</strong> Server <code>{{ info.oc_addr }}</code>, Benutzername und Passwort des RADIUS-Servers.</li>{% endif %}
+    {% if enabled(state, 'openconnect') %}<li><strong>OpenConnect-Clients (z. B. Cisco Secure Client):</strong> Server <code>{{ info.oc_addr }}</code>, Benutzername und Passwort des RADIUS-Servers.</li>{% endif %}
     {% if enabled(state, 'l2tp') %}<li><strong>L2TP/IPsec:</strong> Server wie oben, Shared Secret wie oben, Benutzername und Passwort des RADIUS-Servers.</li>{% endif %}
     {% if enabled(state, 'ikev1_xauth') %}<li><strong>Cisco IPsec (iOS/macOS):</strong> Server, Account = Benutzername, Passwort, Shared Secret wie oben, Gruppenname leer.</li>{% endif %}
   </ul>

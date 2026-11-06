@@ -15,3 +15,7 @@ wie beim WLAN-Controller (Tunnel-Private-Group-Id), VLAN pro Client für WireGua
 
 Dieses ISO wurde automatisch in einer virtuellen Maschine installiert und mit echten Clients für alle Protokolle getestet.
 Ausführliche Anleitung: siehe README im Repository.
+
+Lizenz: GPL-3.0-or-later. Name und Logo: siehe TRADEMARKS.md. Enthaltene Fremdkomponenten
+(Debian-Netinst, accel-ppp) und ihre Quellen: siehe THIRD_PARTY.md und den Abschnitt
+„Lizenz und Quellcode“ unten.

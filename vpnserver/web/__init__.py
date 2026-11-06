@@ -56,9 +56,11 @@ def create_app() -> Flask:
             session["csrf"] = secrets.token_urlsafe(32)
         return session["csrf"]
 
+    from .. import __license__, __sponsor_url__, __url__
     app.jinja_env.globals.update(
         csrf_token=csrf_token, PROTOCOL_LABELS=PROTOCOL_LABELS, PROTOCOLS=PROTOCOLS,
-        version=__version__, enabled=st.enabled)
+        version=__version__, enabled=st.enabled, project_url=__url__, sponsor_url=__sponsor_url__,
+        license_id=__license__)
 
     def client_ip() -> str:
         return request.remote_addr or "?"
@@ -251,7 +253,7 @@ def create_app() -> Flask:
         if st.enabled(state, "sstp"):
             rows.append(("SSTP", "TCP", pr["sstp"]["port"]))
         if st.enabled(state, "openconnect"):
-            rows.append(("OpenConnect / AnyConnect", "TCP", pr["openconnect"]["port"]))
+            rows.append(("OpenConnect (AnyConnect-kompatibel)", "TCP", pr["openconnect"]["port"]))
             rows.append(("OpenConnect (DTLS, schneller)", "UDP", pr["openconnect"]["port"]))
         if st.enabled(state, "pptp"):
             rows.append(("PPTP (+ GRE/PPTP-Passthrough am Router)", "TCP", 1723))

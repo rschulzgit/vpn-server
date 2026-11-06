@@ -1,0 +1,66 @@
+name: Fehlerbericht
+description: Etwas funktioniert nicht wie erwartet
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Danke für die Meldung! **Sicherheitslücken bitte nicht hier melden**, sondern über
+        *Security → Report a vulnerability* (siehe SECURITY.md).
+        Bitte keine Passwörter, Schlüssel, öffentlichen IP-Adressen oder Profile anhängen.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Steht unter System → Software-Update (z. B. 1.1.0 · abc1234)
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: Installationsart
+      options:
+        - ISO
+        - install.sh auf bestehendem System (Debian 13)
+        - install.sh auf bestehendem System (Ubuntu 24.04)
+        - andere
+    validations:
+      required: true
+  - type: dropdown
+    id: bereich
+    attributes:
+      label: Betroffener Bereich
+      multiple: true
+      options:
+        - WireGuard
+        - OpenVPN
+        - IKEv2/IPsec
+        - L2TP/IPsec
+        - Cisco IPsec (IKEv1 XAuth)
+        - SSTP
+        - OpenConnect
+        - PPTP
+        - RADIUS / VLAN
+        - Weboberfläche
+        - Statistik / Werkzeuge
+        - Installation / ISO
+        - Selbst-Update
+        - anderes
+  - type: input
+    id: geraet
+    attributes:
+      label: Endgerät / Client
+      description: z. B. iPhone iOS 18 mit IKEv2-Profil, Windows 11 SSTP-Skript, WireGuard-App Android
+  - type: textarea
+    id: beschreibung
+    attributes:
+      label: Was ist passiert?
+      description: Was haben Sie getan, was haben Sie erwartet, was ist stattdessen passiert?
+    validations:
+      required: true
+  - type: textarea
+    id: protokoll
+    attributes:
+      label: Protokolle
+      description: Relevante Ausschnitte (Verbindungen → Dienste → Protokoll, oder `journalctl -u <dienst>`). Bitte vorher anonymisieren.
+      render: text

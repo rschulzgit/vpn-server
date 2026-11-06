@@ -192,3 +192,17 @@ def test_software_update_settings(client):
     u = st.load()["update"]
     assert u["token"] == "" and u["channel"] == "release" and not u["auto"]
     assert client.get("/api/update/status").get_json()["state"] == "idle"
+
+
+def test_sponsor_link_only_on_system_page(client):
+    from vpnserver import __sponsor_url__
+    tok = login_and_setup(client)
+    assert __sponsor_url__ == "https://github.com/sponsors/rschulzgit"
+    page = client.get("/system").text
+    assert f'href="{__sponsor_url__}"' in page and "Projekt unterstützen" in page
+    assert 'rel="noopener noreferrer"' in page and "GPL-3.0-or-later" in page
+    client.post("/clients", data={"name": "sp-test", "tunnel": "full", "csrf_token": tok})
+    for other in ("/", "/clients", "/clients/sp-test", "/statistik", "/status", "/werkzeuge",
+                  "/settings", "/radius-profile"):
+        text = client.get(other).text
+        assert __sponsor_url__ not in text and "Projekt unterstützen" not in text, other

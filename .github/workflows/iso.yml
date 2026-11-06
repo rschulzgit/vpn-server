@@ -56,6 +56,11 @@ jobs:
           docker run --rm -v "$PWD/installer:/src:ro" -v "$PWD/build/accel:/out" debian:trixie \
             bash -c "apt-get update -qq && bash /src/build-accel-ppp.sh deb /out"
           dpkg-deb --info build/accel/accel-ppp.deb | head -20
+          # Quellcode zum mitverbreiteten accel-ppp-Paket (GPL) fuer das Release
+          AV="$(sed -n 's/^ACCEL_PPP_VERSION="${ACCEL_PPP_VERSION:-\(.*\)}"/\1/p' installer/build-accel-ppp.sh)"
+          git clone --quiet --depth 1 --branch "$AV" https://github.com/accel-ppp/accel-ppp.git "build/accel-ppp-$AV"
+          tar --exclude=.git -czf "build/accel/accel-ppp-$AV-source.tar.gz" -C build "accel-ppp-$AV"
+          ls -la build/accel
 
       - name: ISO bauen
         timeout-minutes: 20
@@ -166,12 +171,25 @@ jobs:
             exit 1
           fi
           ISO="$(ls build/vpn-server-*-debian13-amd64.iso | grep -v e2e)"
+          SRC="$(ls build/accel/accel-ppp-*-source.tar.gz)"
           SHA="$(git rev-parse HEAD)"
+          BASE="$(cat build/debian-base.txt)"
+          DV="$(echo "$BASE" | sed -n 's/^debian-\([0-9.]*\)-amd64-netinst\.iso$/\1/p')"
+          {
+            cat docs/RELEASE.md
+            echo
+            echo "### Lizenz und Quellcode"
+            echo
+            echo "- VPN-Server: GPL-3.0-or-later, Quellcode: Tag \`$TAG\` (Commit \`${SHA:0:12}\`)."
+            echo "- Basis: \`$BASE\` (unverändert). Quellen: https://cdimage.debian.org/cdimage/archive/$DV/source/ bzw. https://sources.debian.org"
+            echo "- accel-ppp: Quellcode als \`$(basename "$SRC")\` in diesem Release, gebaut mit \`installer/build-accel-ppp.sh\`."
+            echo "- Übersicht aller Komponenten: THIRD_PARTY.md im Repository."
+          } > build/release-notes.md
           if gh release view "$TAG" >/dev/null 2>&1; then
             # Release existiert bereits (z. B. ueber die GitHub-Oberflaeche angelegt)
-            gh release upload "$TAG" "$ISO" "$ISO.sha256" --clobber
-            gh release edit "$TAG" --title "VPN-Server $TAG" --notes-file docs/RELEASE.md
+            gh release upload "$TAG" "$ISO" "$ISO.sha256" "$SRC" --clobber
+            gh release edit "$TAG" --title "VPN-Server $TAG" --notes-file build/release-notes.md
           else
-            gh release create "$TAG" "$ISO" "$ISO.sha256" --target "$SHA" \
-              --title "VPN-Server $TAG" --notes-file docs/RELEASE.md
+            gh release create "$TAG" "$ISO" "$ISO.sha256" "$SRC" --target "$SHA" \
+              --title "VPN-Server $TAG" --notes-file build/release-notes.md
           fi

@@ -54,7 +54,7 @@
         <tr><td><input type="checkbox" name="ikev1_xauth_enabled" value="1" {{ 'checked' if pr.ikev1_xauth.enabled }}></td><td>Cisco IPsec (IKEv1 XAuth)</td><td>UDP 500, 4500</td><td>iOS/macOS „IPsec“</td></tr>
         <tr><td><input type="checkbox" name="sstp_enabled" value="1" {{ 'checked' if pr.sstp.enabled }}></td><td>SSTP</td>
           <td>TCP <input type="number" name="sstp_port" value="{{ pr.sstp.port }}" class="port"></td><td>Windows; 443 empfohlen</td></tr>
-        <tr><td><input type="checkbox" name="openconnect_enabled" value="1" {{ 'checked' if pr.openconnect.enabled }}></td><td>OpenConnect / AnyConnect</td>
+        <tr><td><input type="checkbox" name="openconnect_enabled" value="1" {{ 'checked' if pr.openconnect.enabled }}></td><td>OpenConnect (AnyConnect-kompatibel)</td>
           <td>TCP+UDP <input type="number" name="openconnect_port" value="{{ pr.openconnect.port }}" class="port"></td><td></td></tr>
         <tr><td><input type="checkbox" name="pptp_enabled" value="1" {{ 'checked' if pr.pptp.enabled }}></td><td>PPTP</td><td>TCP 1723 + GRE</td><td><span class="badge err">unsicher</span></td></tr>
       </tbody>

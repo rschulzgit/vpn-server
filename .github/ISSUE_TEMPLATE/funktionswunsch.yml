@@ -1,0 +1,23 @@
+name: Funktionswunsch
+description: Idee für eine neue Funktion oder Verbesserung
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Welches Problem soll gelöst werden?
+      description: Beschreiben Sie die Situation, in der Ihnen etwas fehlt.
+    validations:
+      required: true
+  - type: textarea
+    id: vorschlag
+    attributes:
+      label: Vorschlag
+      description: Wie könnte die Lösung aussehen (Weboberfläche, Protokoll, Gerät)?
+    validations:
+      required: true
+  - type: textarea
+    id: alternativen
+    attributes:
+      label: Alternativen
+      description: Gibt es Umgehungen oder andere Lösungen, die Sie bereits geprüft haben?

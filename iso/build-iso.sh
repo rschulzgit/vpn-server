@@ -79,6 +79,7 @@ if [ -z "$DEBIAN_ISO" ]; then
   (cd "$OUT/cache" && grep " $ISO_NAME\$" "$STAGE/SHA256SUMS" | sha256sum -c -)
 fi
 log "Basis: $(basename "$DEBIAN_ISO")"
+basename "$DEBIAN_ISO" > "$OUT/debian-base.txt"
 
 # ---------------------------------------------------------------------------
 # 2. Payload (Anwendung + Installer + accel-ppp)

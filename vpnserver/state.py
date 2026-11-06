@@ -33,7 +33,7 @@ PROTOCOL_LABELS = {
     "ikev1_xauth": "Cisco IPsec (IKEv1 XAuth)",
     "l2tp": "L2TP/IPsec",
     "sstp": "SSTP",
-    "openconnect": "OpenConnect / Cisco AnyConnect",
+    "openconnect": "OpenConnect (AnyConnect-kompatibel)",
     "pptp": "PPTP (unsicher)",
 }
 

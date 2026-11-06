@@ -1556,7 +1556,7 @@ def t_rad_sstp():
     check(vlan_session("radvlan10", 10), "Nicht mit VLAN 10 in der Statusanzeige")
 
 
-@test("RADIUS / VLAN", "RADIUS-Benutzer mit VLAN 10: OpenConnect / AnyConnect")
+@test("RADIUS / VLAN", "RADIUS-Benutzer mit VLAN 10: OpenConnect (AnyConnect-kompatibel)")
 def t_rad_oc():
     write("oc-env.txt", "")
     oc_up("oc-rad.log", user="radvlan10", password=RAD["radvlan10"])
