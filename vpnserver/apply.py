@@ -7,10 +7,11 @@ import os
 import socket
 import time
 
-from . import pki, render, state as st, util
+from . import pki, render, state as st, util, vlan
 from .util import P, log
 
 WEBUI_UNIT = "vpn-webui.service"
+RADIUS_UNIT = "vpn-radius.service"
 
 
 def _hash_files(paths: list[str]) -> str:
@@ -101,6 +102,14 @@ def apply(state: dict, restart_webui: bool = True) -> list[str]:
     for path, (content, mode) in files.items():
         if util.write_file(path, content, mode):
             changed.add(path)
+    # Vollstaendig verwaltete Verzeichnisse: veraltete Dateien entfernen
+    for d in render.MANAGED_DIRS:
+        os.makedirs(P(d), mode=0o755, exist_ok=True)
+        for fname in os.listdir(P(d)):
+            path = f"{d}/{fname}"
+            if path not in files and not fname.startswith("."):
+                util.remove_file(path)
+                changed.add(path)
     messages = [f"geaendert: {p}" for p in sorted(changed)]
     if util.DRYRUN:
         return messages
@@ -113,6 +122,9 @@ def apply(state: dict, restart_webui: bool = True) -> list[str]:
                 util.run(["modprobe", mod])
     if render.SYSCTL_CONF in changed:
         util.run(["sysctl", "-p", render.SYSCTL_CONF])
+
+    # VLAN-Schnittstellen und Policy-Routing
+    messages += vlan.apply_network(state)
 
     # Firewall
     if render.NFT_CONF in changed or not is_active("nftables.service"):
@@ -147,9 +159,13 @@ def apply(state: dict, restart_webui: bool = True) -> list[str]:
         conf_changed = f"{render.OVPN_DIR}/{name}.conf" in changed
         ensure_unit(f"openvpn-server@{name}.service", want, restart=conf_changed or srv_changed)
 
+    # Lokaler RADIUS-Dienst (vor den VPN-Diensten, die ihn nutzen)
+    radius_files = {render.RADIUSD_CONF, render.RADIUS_USERS}
+    ensure_unit(RADIUS_UNIT, vlan.radius_mode(state), restart=bool(radius_files & changed))
+
     # strongSwan
     if st.any_ipsec(state):
-        ensure_unit("strongswan.service", True)
+        ensure_unit("strongswan.service", True, restart=render.STRONGSWAN_CONF in changed)
         if not NO_BLOCK:  # sonst laedt strongswan.service die Konfiguration selbst
             _swanctl_load()
     else:
@@ -164,13 +180,18 @@ def apply(state: dict, restart_webui: bool = True) -> list[str]:
         ensure_unit("accel-ppp.service", False)
 
     # OpenConnect (ocpasswd wird bei jeder Anmeldung neu gelesen)
+    oc_files = {render.OCSERV_CONF, render.RADCLI_CONF, render.RADCLI_SERVERS}
     ensure_unit("ocserv.service", st.enabled(state, "openconnect"),
-                restart=render.OCSERV_CONF in changed or tls_changed)
+                restart=bool(oc_files & changed) or tls_changed)
+
+    # Statistik (Durchsatz, Datenvolumen, Verbindungsprotokoll)
+    ensure_unit("vpn-stats.service", True)
 
     # Weboberflaeche neu laden, wenn sich das TLS-Zertifikat geaendert hat
     if tls_changed and restart_webui:
+        # Unterbrechungsfrei: gunicorn laedt per HUP neue Worker mit dem neuen Zertifikat
         util.run(["systemd-run", "--on-active=2", "--unit=vpn-webui-reload",
-                  "--collect", "systemctl", "restart", WEBUI_UNIT])
+                  "--collect", "systemctl", "reload-or-restart", WEBUI_UNIT])
     return messages
 
 

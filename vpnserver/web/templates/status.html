@@ -1,23 +1,34 @@
 {% extends "base.html" %}
-{% block title %}Status{% endblock %}
+{% from "_macros.html" import csrf %}
+{% block title %}Verbindungen{% endblock %}
 {% block content %}
-<h1>Status</h1>
-<div class="panel">
-  <h2>Verbundene Clients (<span id="session-count">{{ sessions | length }}</span>)</h2>
-  <div class="table-wrap"><table id="live-sessions">
-    <thead><tr><th>Client</th><th>Protokoll</th><th>VPN-IP</th><th>Von</th><th>Empfangen / Gesendet</th><th>Seit</th></tr></thead>
+<div class="page-head"><div><h1>Verbindungen</h1><p class="page-sub">Aktive VPN-Verbindungen, Verbindungsprotokoll und Dienste</p></div></div>
+<div class="card">
+  <div class="card-head"><h2>Verbunden (<span id="session-count">{{ sessions | length }}</span>)</h2><span class="muted right">wird alle 5 Sekunden aktualisiert</span></div>
+  <div class="table-wrap"><table id="live-sessions" data-vlans="{{ '1' if state.vlans else '' }}">
+    <thead><tr><th>Benutzer</th><th>Protokoll</th><th>VPN-IP</th>{% if state.vlans %}<th>Netz</th>{% endif %}<th>Von</th><th class="num">Download</th><th class="num">Upload</th><th>Seit</th><th></th></tr></thead>
     <tbody>
     {% for s in sessions %}
-      <tr><td>{{ s.user }}</td><td>{{ s.proto }}</td><td>{{ s.vip }}</td><td>{{ s.remote }}</td><td>{{ s.rx }} / {{ s.tx }}</td><td>{{ s.since }}</td></tr>
+      <tr><td>{{ s.user }}{% if s.radius %} <span class="badge">RADIUS</span>{% endif %}</td><td>{{ s.proto }}</td><td><code>{{ s.vip }}</code></td>{% if state.vlans %}<td>{{ s.vlan or 'Standard' }}</td>{% endif %}<td>{{ s.remote }}</td><td class="num">{{ s.tx }}</td><td class="num">{{ s.rx }}</td><td>{{ s.since }}</td>
+        <td><form method="post" action="{{ url_for('status_disconnect') }}" class="inline-form" data-confirm="Alle Verbindungen von {{ s.user }} trennen?">{{ csrf() }}<input type="hidden" name="user" value="{{ s.user }}"><button class="btn small secondary" type="submit">Trennen</button></form></td></tr>
     {% else %}
-      <tr><td colspan="6" class="muted">Keine Verbindungen.</td></tr>
+      <tr><td colspan="9" class="muted">Keine Verbindungen.</td></tr>
     {% endfor %}
     </tbody>
   </table></div>
-  <p class="hint">Wird alle 10 Sekunden aktualisiert.</p>
+  <p class="hint">Download = Daten zum Gerät, Upload = Daten vom Gerät. „Trennen“ beendet die Verbindung; das Gerät kann sich danach wieder anmelden – zum dauerhaften Sperren den Client sperren.</p>
 </div>
-<div class="panel">
-  <h2>Dienste</h2>
+
+<div class="card">
+  <div class="card-head"><h2>Verbindungsprotokoll</h2><span class="muted">An- und Abmeldungen</span></div>
+  <div class="table-wrap"><table id="events">
+    <thead><tr><th>Zeit</th><th>Ereignis</th><th>Benutzer</th><th>Protokoll</th><th>VPN-IP</th><th>Von</th><th class="num">Dauer</th><th class="num">Volumen</th></tr></thead>
+    <tbody><tr><td colspan="8" class="muted">Wird geladen …</td></tr></tbody>
+  </table></div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>Dienste</h2></div>
   <div class="table-wrap"><table>
     <thead><tr><th>Dienst</th><th>systemd-Unit</th><th>Soll</th><th>Ist</th><th></th></tr></thead>
     <tbody>
@@ -35,9 +46,13 @@
   </table></div>
 </div>
 {% if logtext is not none %}
-<div class="panel" id="log">
+<div class="card" id="log">
   <h2>Protokoll: <code>{{ log_unit }}</code></h2>
   <pre>{{ logtext }}</pre>
 </div>
 {% endif %}
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='charts.js') }}?v={{ version }}"></script>
+<script src="{{ url_for('static', filename='status.js') }}?v={{ version }}"></script>
 {% endblock %}

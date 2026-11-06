@@ -1,0 +1,17 @@
+[Unit]
+Description=VPN-Server: Verkehrs- und Systemstatistik
+After=network.target nftables.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/vpnctl stats-daemon
+Restart=always
+RestartSec=5
+StateDirectory=vpn-server
+Nice=10
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

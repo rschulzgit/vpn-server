@@ -7,6 +7,14 @@ on:
         description: "End-to-End-Test in QEMU ausfuehren"
         type: boolean
         default: true
+      release_tag:
+        description: "Release veroeffentlichen (z. B. v1.0.0) - nur wenn alle Tests bestehen"
+        type: string
+        default: ""
+      commit:
+        description: "Commit (SHA), der gebaut und getestet wird (leer = Stand des Branches)"
+        type: string
+        default: ""
   push:
     tags: ["v*"]
     branches: ["**"]
@@ -22,36 +30,72 @@ permissions:
 
 concurrency:
   group: iso-${{ github.ref }}
-  cancel-in-progress: true
+  # Laufende Testlaeufe nicht abbrechen; der neueste Stand wartet und laeuft danach
+  cancel-in-progress: false
 
 jobs:
   iso:
     runs-on: ubuntu-24.04
     timeout-minutes: 330
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.commit || github.sha }}
 
       - name: Werkzeuge installieren
+        timeout-minutes: 15
         run: |
+          echo 'Acquire::Retries "5"; Acquire::http::Timeout "30"; Acquire::https::Timeout "30";' | sudo tee /etc/apt/apt.conf.d/80-retries
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends xorriso debian-keyring gpgv
 
       - name: accel-ppp fuer Debian 13 bauen
+        timeout-minutes: 20
         run: |
           mkdir -p build/accel
           docker run --rm -v "$PWD/installer:/src:ro" -v "$PWD/build/accel:/out" debian:trixie \
             bash -c "apt-get update -qq && bash /src/build-accel-ppp.sh deb /out"
           dpkg-deb --info build/accel/accel-ppp.deb | head -20
+          # Quellcode zum mitverbreiteten accel-ppp-Paket (GPL) fuer das Release
+          AV="$(sed -n 's/^ACCEL_PPP_VERSION="${ACCEL_PPP_VERSION:-\(.*\)}"/\1/p' installer/build-accel-ppp.sh)"
+          git clone --quiet --depth 1 --branch "$AV" https://github.com/accel-ppp/accel-ppp.git "build/accel-ppp-$AV"
+          tar --exclude=.git -czf "build/accel/accel-ppp-$AV-source.tar.gz" -C build "accel-ppp-$AV"
+          ls -la build/accel
 
       - name: ISO bauen
+        timeout-minutes: 20
         run: |
           ./iso/build-iso.sh --accel-deb build/accel/accel-ppp.deb --output build
           ./iso/build-iso.sh --accel-deb build/accel/accel-ppp.deb --output build --e2e \
             --debian-iso "$(ls build/cache/debian-13*-netinst.iso)"
           ls -la build
 
+      - name: Schnelltest install.sh in Debian-13-Container
+        timeout-minutes: 20
+        run: |
+          docker run --rm --cap-add NET_ADMIN -v "$PWD:/src:ro" debian:trixie bash -ec '
+            cp -a /src /tmp/vpn
+            mkdir -p /tmp/vpn/payload
+            cp /src/build/accel/accel-ppp.deb /tmp/vpn/payload/
+            apt-get update -qq
+            bash /tmp/vpn/installer/install.sh --iso
+            echo "=== Versionen ==="
+            swanctl --version | head -1; openvpn --version | head -1; ocserv --version | head -1
+            wg --version; accel-cmd --help >/dev/null 2>&1 || true; ls -la /usr/sbin/accel-pppd
+            python3 -c "import flask, qrcode, cryptography, gunicorn, jinja2; print(cryptography.__version__, jinja2.__version__)"
+            echo "=== Unit-Tests mit Debian-13-Python ==="
+            apt-get install -y -qq python3-pytest >/dev/null
+            cd /tmp/vpn && python3 -m pytest -q tests
+            echo "=== Konfiguration erzeugen und mit Debian-13-Werkzeugen pruefen ==="
+            export VPNSERVER_DRYRUN=1 PYTHONPATH=/opt/vpn-server
+            python3 -m vpnserver.cli init --password Test123456 --public-host vpn.example.org
+            python3 -m vpnserver.cli client add handy >/dev/null
+            ocserv -t -c /etc/ocserv/ocserv.conf
+            nft -c -f /etc/nftables.conf && echo "nftables OK"
+          '
+
       - name: KVM aktivieren
-        if: ${{ inputs.e2e != false }}
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.e2e }}
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
@@ -59,16 +103,51 @@ jobs:
           ls -la /dev/kvm || echo "kein /dev/kvm"
 
       - name: Testwerkzeuge installieren
-        if: ${{ inputs.e2e != false }}
+        timeout-minutes: 20
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.e2e }}
         run: |
-          sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils wireguard-tools \
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils ovmf wireguard-tools \
             openvpn openconnect strongswan-swanctl charon-systemd libcharon-extauth-plugins \
-            libcharon-extra-plugins sstp-client xl2tpd ppp sshpass curl
+            libcharon-extra-plugins libstrongswan-extra-plugins libstrongswan-standard-plugins sstp-client xl2tpd ppp sshpass curl \
+            zbar-tools librsvg2-bin bind9-dnsutils iptables python3-pyte freeradius
           sudo systemctl stop strongswan xl2tpd openvpn || true
+          command -v pwsh || sudo snap install powershell --classic
+          pwsh -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
 
-      - name: End-to-End-Test (Installation in QEMU + alle Protokolle)
-        if: ${{ inputs.e2e != false }}
-        run: sudo WORK=/tmp/e2e tests/e2e/run.sh build/vpn-server-*-e2e.iso
+      - name: KVM verfuegbar?
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.e2e }}
+        continue-on-error: true
+        run: test -w /dev/kvm
+
+      - name: "E2E 1/3: Bootmenue-Test (BIOS, UEFI mit Secure Boot)"
+        timeout-minutes: 30
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.e2e }}
+        run: sudo PHASES=boot WORK=/tmp/e2e tests/e2e/run.sh build/vpn-server-*-e2e.iso
+
+      - name: "E2E 2/3: Vollautomatische Installation in QEMU"
+        timeout-minutes: 60
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.e2e }}
+        run: sudo PHASES=install WORK=/tmp/e2e tests/e2e/run.sh build/vpn-server-*-e2e.iso
+
+      - name: "E2E 3/3: Geraete- und Funktionstests"
+        timeout-minutes: 120
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.e2e }}
+        run: sudo PHASES=test GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" WORK=/tmp/e2e tests/e2e/run.sh build/vpn-server-*-e2e.iso
+
+      - name: Testprotokolle sichern
+        if: ${{ always() && (github.event_name != 'workflow_dispatch' || inputs.e2e) }}
+        run: |
+          mkdir -p e2e-logs
+          sudo sh -c 'cp /tmp/e2e/*.log /tmp/e2e/*.jsonl /tmp/e2e/results.* /tmp/e2e/*.calls.json e2e-logs/ 2>/dev/null; true'
+          sudo chown -R "$USER" e2e-logs
+
+      - name: Testprotokolle hochladen
+        if: ${{ always() && (github.event_name != 'workflow_dispatch' || inputs.e2e) }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-protokolle
+          path: e2e-logs/
+          retention-days: 7
 
       - name: Diagnose
         if: failure()
@@ -79,10 +158,38 @@ jobs:
           sudo tail -n 80 /tmp/e2e/charon-cli.log || true
 
       - name: Release veroeffentlichen
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: >-
+          (startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != '') &&
+          (github.event_name != 'workflow_dispatch' || inputs.e2e)
         env:
           GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.release_tag }}
         run: |
+          TAG="${INPUT_TAG:-$GITHUB_REF_NAME}"
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$ ]]; then
+            echo "Ungueltiger Release-Tag: $TAG" >&2
+            exit 1
+          fi
           ISO="$(ls build/vpn-server-*-debian13-amd64.iso | grep -v e2e)"
-          gh release create "$GITHUB_REF_NAME" "$ISO" "$ISO.sha256" \
-            --title "VPN-Server $GITHUB_REF_NAME" --notes-file docs/RELEASE.md
+          SRC="$(ls build/accel/accel-ppp-*-source.tar.gz)"
+          SHA="$(git rev-parse HEAD)"
+          BASE="$(cat build/debian-base.txt)"
+          DV="$(echo "$BASE" | sed -n 's/^debian-\([0-9.]*\)-amd64-netinst\.iso$/\1/p')"
+          {
+            cat docs/RELEASE.md
+            echo
+            echo "### Lizenz und Quellcode"
+            echo
+            echo "- VPN-Server: GPL-3.0-or-later, Quellcode: Tag \`$TAG\` (Commit \`${SHA:0:12}\`)."
+            echo "- Basis: \`$BASE\` (unverändert). Quellen: https://cdimage.debian.org/cdimage/archive/$DV/source/ bzw. https://sources.debian.org"
+            echo "- accel-ppp: Quellcode als \`$(basename "$SRC")\` in diesem Release, gebaut mit \`installer/build-accel-ppp.sh\`."
+            echo "- Übersicht aller Komponenten: THIRD_PARTY.md im Repository."
+          } > build/release-notes.md
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            # Release existiert bereits (z. B. ueber die GitHub-Oberflaeche angelegt)
+            gh release upload "$TAG" "$ISO" "$ISO.sha256" "$SRC" --clobber
+            gh release edit "$TAG" --title "VPN-Server $TAG" --notes-file build/release-notes.md
+          else
+            gh release create "$TAG" "$ISO" "$ISO.sha256" "$SRC" --target "$SHA" \
+              --title "VPN-Server $TAG" --notes-file build/release-notes.md
+          fi

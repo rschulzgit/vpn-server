@@ -116,33 +116,57 @@
   }
   if (method) { method.addEventListener("change", netFields); netFields(); }
 
-  // Status automatisch aktualisieren
-  var live = document.getElementById("live-sessions");
-  if (live) {
-    setInterval(function () {
-      fetch("/api/status", { credentials: "same-origin" })
-        .then(function (r) { return r.ok ? r.json() : null; })
-        .then(function (d) {
-          if (!d) return;
-          var tbody = live.querySelector("tbody");
-          tbody.innerHTML = "";
-          if (!d.sessions.length) {
-            var tr = document.createElement("tr");
-            var td = document.createElement("td");
-            td.colSpan = 6; td.className = "muted"; td.textContent = "Keine Verbindungen.";
-            tr.appendChild(td); tbody.appendChild(tr);
-          }
-          d.sessions.forEach(function (s) {
-            var tr = document.createElement("tr");
-            [s.user, s.proto, s.vip, s.remote, s.rx + " / " + s.tx, s.since].forEach(function (v) {
-              var td = document.createElement("td"); td.textContent = v || ""; tr.appendChild(td);
-            });
-            tbody.appendChild(tr);
-          });
-          var cnt = document.getElementById("session-count");
-          if (cnt) cnt.textContent = d.sessions.length;
-        })
-        .catch(function () { /* ignorieren */ });
-    }, 10000);
+  // ---------------------------------------------------------------- Seitenleiste (mobil)
+  var sidebar = document.getElementById("sidebar");
+  var scrim = document.getElementById("scrim");
+  var menuBtn = document.getElementById("menu-btn");
+  function setNav(open) {
+    if (!sidebar) return;
+    sidebar.classList.toggle("open", open);
+    scrim.classList.toggle("open", open);
+    menuBtn.setAttribute("aria-expanded", open ? "true" : "false");
+  }
+  if (menuBtn) {
+    menuBtn.addEventListener("click", function () { setNav(!sidebar.classList.contains("open")); });
+    scrim.addEventListener("click", function () { setNav(false); });
+    document.addEventListener("keydown", function (ev) { if (ev.key === "Escape") setNav(false); });
+  }
+
+  // ---------------------------------------------------------------- Kopfzeile: Durchsatz + Status
+  var nf1 = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 1 });
+  function rate(bps) {
+    var b = (bps || 0) * 8;
+    if (b >= 1e9) return nf1.format(b / 1e9) + " Gbit/s";
+    if (b >= 1e6) return nf1.format(b / 1e6) + " Mbit/s";
+    if (b >= 1e3) return Math.round(b / 1e3) + " kbit/s";
+    return Math.round(b) + " bit/s";
+  }
+  window.VPNTopbar = function (d) {
+    var bar = document.getElementById("topbar-live");
+    if (!bar || !d) return;
+    var pts = d.points || [];
+    var last = pts.length ? pts[pts.length - 1] : [0, 0, 0];
+    document.getElementById("tb-down").textContent = "↓ " + rate(last[1]);
+    document.getElementById("tb-up").textContent = "↑ " + rate(last[2]);
+    var pill = document.getElementById("tb-health");
+    var problems = d.problems || [];
+    pill.className = "pill " + (problems.length ? "err" : "ok");
+    pill.textContent = problems.length ? problems.length + " Dienst(e) gestört" : "Alle Dienste laufen";
+    pill.title = problems.join(", ");
+    bar.hidden = false;
+  };
+  function topbarPoll() {
+    if (window.VPN_LIVE_PAGE || document.hidden || !document.getElementById("topbar-live")) return;
+    fetch("/api/live", { credentials: "same-origin" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        window.VPNTopbar(d);
+        if (d && window.VPNStatusPage) window.VPNStatusPage(d);
+      })
+      .catch(function () { /* ignorieren */ });
+  }
+  if (document.getElementById("topbar-live")) {
+    setTimeout(topbarPoll, 50);
+    setInterval(topbarPoll, 5000);
   }
 })();

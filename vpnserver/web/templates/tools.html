@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf %}
+{% block title %}Werkzeuge{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>Werkzeuge</h1><p class="page-sub">Diagnose direkt vom VPN-Server aus</p></div></div>
+<div class="card">
+  <div class="tabs" data-tabgroup="main">
+    <button type="button" data-tab="ping">Ping</button>
+    <button type="button" data-tab="traceroute">Traceroute</button>
+    <button type="button" data-tab="dns">DNS-Abfrage</button>
+    <button type="button" data-tab="speed">Speedtest</button>
+    <button type="button" data-tab="wol">Wake-on-LAN</button>
+    <button type="button" data-tab="capture">Paketmitschnitt</button>
+  </div>
+
+  <div class="tab" data-tabpanel="main" data-name="ping">
+    <p class="muted mt-0">Prüft, ob ein Gerät im Heimnetz oder im Internet vom Server aus erreichbar ist.</p>
+    <form class="row" data-tool="ping">
+      <input name="host" type="text" placeholder="z. B. 192.168.1.1 oder debian.org" required>
+      <select name="count" class="w-auto"><option value="4">4 Pakete</option><option value="10">10 Pakete</option></select>
+      <button class="btn" type="submit">Ping starten</button>
+    </form>
+    <pre class="tool-out hidden" data-out="ping"></pre>
+  </div>
+
+  <div class="tab" data-tabpanel="main" data-name="traceroute">
+    <p class="muted mt-0">Zeigt den Weg der Pakete zum Ziel (z. B. um Probleme beim Provider zu finden).</p>
+    <form class="row" data-tool="traceroute">
+      <input name="host" type="text" placeholder="z. B. 1.1.1.1" required>
+      <button class="btn" type="submit">Traceroute starten</button>
+    </form>
+    <pre class="tool-out hidden" data-out="traceroute"></pre>
+  </div>
+
+  <div class="tab" data-tabpanel="main" data-name="dns">
+    <p class="muted mt-0">Fragt einen DNS-Namen ab – z. B. ob Ihr DynDNS-Name auf die aktuelle öffentliche IP zeigt.</p>
+    <form class="row" data-tool="dns">
+      <input name="name" type="text" placeholder="Name, z. B. {{ state.server.public_host or 'vpn.example.org' }}" value="{{ state.server.public_host }}" required>
+      <select name="type" class="w-auto">{% for t in dns_types %}<option>{{ t }}</option>{% endfor %}</select>
+      <input name="server" type="text" placeholder="DNS-Server (optional)">
+      <button class="btn" type="submit">Abfragen</button>
+    </form>
+    <pre class="tool-out hidden" data-out="dns"></pre>
+  </div>
+
+  <div class="tab" data-tabpanel="main" data-name="speed">
+    <p class="muted mt-0">Misst die Internetanbindung des Servers (Latenz, Download, Upload) über <code>speed.cloudflare.com</code>. Der Upload begrenzt meist die VPN-Geschwindigkeit unterwegs.</p>
+    <form data-tool="speedtest"><button class="btn" type="submit">Messung starten</button> <span class="muted" data-busy>dauert etwa 20 Sekunden</span></form>
+    <div class="speed hidden" id="speed-result">
+      <div><span>Latenz</span><strong id="sp-lat">–</strong></div>
+      <div><span>Download</span><strong id="sp-down">–</strong></div>
+      <div><span>Upload</span><strong id="sp-up">–</strong></div>
+    </div>
+    <pre class="tool-out hidden" data-out="speedtest"></pre>
+  </div>
+
+  <div class="tab" data-tabpanel="main" data-name="wol">
+    <p class="muted mt-0">Weckt einen ausgeschalteten PC im Heimnetz auf (Wake-on-LAN muss im BIOS und in der Netzwerkkarte aktiviert sein). Praktisch, um sich per VPN von unterwegs auf den PC zu verbinden.</p>
+    {% if wol %}
+    <div class="table-wrap"><table>
+      <thead><tr><th>Gerät</th><th>MAC-Adresse</th><th></th></tr></thead>
+      <tbody>
+      {% for d in wol %}
+        <tr><td>{{ d.name }}</td><td><code>{{ d.mac }}</code></td>
+          <td class="num"><form class="inline-form" data-tool="wol"><input type="hidden" name="mac" value="{{ d.mac }}"><button class="btn small" type="submit">Aufwecken</button></form>
+            <form method="post" action="{{ url_for('tools_wol_devices') }}" class="inline-form" data-confirm="{{ d.name }} entfernen?">{{ csrf() }}<input type="hidden" name="action" value="delete"><input type="hidden" name="mac" value="{{ d.mac }}"><button class="btn small secondary" type="submit">Entfernen</button></form></td></tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    {% endif %}
+    <form class="row mt-1" data-tool="wol">
+      <input name="mac" type="text" placeholder="MAC-Adresse, z. B. 00:11:22:33:44:55" required>
+      <button class="btn" type="submit">Jetzt aufwecken</button>
+    </form>
+    <pre class="tool-out hidden" data-out="wol"></pre>
+    <h3>Gerät speichern</h3>
+    <form method="post" action="{{ url_for('tools_wol_devices') }}" class="row">{{ csrf() }}<input type="hidden" name="action" value="add">
+      <input name="name" type="text" placeholder="Name, z. B. Büro-PC" maxlength="40" required>
+      <input name="mac" type="text" placeholder="MAC-Adresse" required>
+      <button class="btn secondary" type="submit">Speichern</button>
+    </form>
+  </div>
+
+  <div class="tab" data-tabpanel="main" data-name="capture">
+    <p class="muted mt-0">Zeichnet den Netzwerkverkehr für eine kurze Zeit auf und lädt ihn als <code>.pcap</code>-Datei herunter (zum Öffnen mit Wireshark). Hilfreich bei Verbindungsproblemen.</p>
+    <form method="post" action="{{ url_for('tools_capture') }}">{{ csrf() }}
+      <div class="grid-2">
+        <div><label for="cap-if">Schnittstelle</label>
+          <select id="cap-if" name="iface">{% for i in interfaces %}<option value="{{ i }}">{{ 'alle Schnittstellen' if i == 'any' else i }}</option>{% endfor %}</select></div>
+        <div><label for="cap-sec">Dauer</label>
+          <select id="cap-sec" name="seconds"><option value="10">10 Sekunden</option><option value="30">30 Sekunden</option><option value="60">60 Sekunden</option></select></div>
+        <div><label for="cap-filter">Filter (optional)</label>
+          <input id="cap-filter" name="filter" type="text" placeholder="z. B. udp port 51820 oder host 192.168.1.20">
+          <p class="hint">tcpdump-Syntax. Ohne Filter werden alle Pakete aufgezeichnet (max. 25 MB).</p></div>
+      </div>
+      <div class="actions"><button class="btn" type="submit">Aufzeichnen und herunterladen</button></div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='tools.js') }}?v={{ version }}"></script>
+{% endblock %}

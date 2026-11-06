@@ -1,0 +1,362 @@
+# Verwaltet von VPN-Server - manuelle Aenderungen werden ueberschrieben.
+#
+# Lokaler RADIUS-Dienst der VPN-Dienste (strongSwan, accel-ppp, ocserv):
+#  - prueft lokale VPN-Benutzer (Datei "users"),
+#  - leitet unbekannte Benutzer an den externen RADIUS-Server weiter,
+#  - wertet die VLAN-Zuweisung aus (Tunnel-Private-Group-Id, wie bei WLAN-Controllern)
+#    und uebersetzt sie fuer den jeweiligen VPN-Dienst in einen Adressbereich.
+prefix = /usr
+exec_prefix = /usr
+sysconfdir = /etc
+localstatedir = /var
+sbindir = /usr/sbin
+logdir = /var/log/freeradius
+raddbdir = {{ confdir }}
+radacctdir = ${logdir}/radacct
+name = freeradius
+confdir = ${raddbdir}
+modconfdir = ${confdir}
+certdir = ${confdir}
+cadir = ${confdir}
+run_dir = /run/vpn-radius
+db_dir = ${raddbdir}
+libdir = /usr/lib/freeradius
+pidfile = ${run_dir}/radiusd.pid
+correct_escapes = true
+max_request_time = 30
+cleanup_delay = 5
+max_requests = 16384
+hostname_lookups = no
+
+log {
+	destination = stdout
+	colourise = no
+	file = ${logdir}/radius.log
+	syslog_facility = daemon
+	stripped_names = no
+	auth = yes
+	auth_badpass = no
+	auth_goodpass = no
+}
+
+checkrad = ${sbindir}/checkrad
+
+security {
+	allow_core_dumps = no
+	max_attributes = 200
+	reject_delay = 1
+	status_server = no
+}
+
+proxy_requests = {{ 'yes' if upstream else 'no' }}
+{% if upstream %}
+
+proxy server {
+	default_fallback = no
+}
+{% for s in servers %}
+
+home_server upstream{{ loop.index }}-auth {
+	type = auth
+	ipaddr = {{ s.host }}
+	port = {{ s.auth_port }}
+	secret = '{{ s.secret }}'
+	response_window = 8
+	zombie_period = 30
+	revive_interval = 60
+	status_check = none
+}
+{% if accounting %}
+
+home_server upstream{{ loop.index }}-acct {
+	type = acct
+	ipaddr = {{ s.host }}
+	port = {{ s.acct_port }}
+	secret = '{{ s.secret }}'
+	response_window = 8
+	zombie_period = 30
+	revive_interval = 60
+	status_check = none
+}
+{% endif %}
+{% endfor %}
+
+home_server_pool upstream-auth {
+	type = fail-over
+{% for s in servers %}
+	home_server = upstream{{ loop.index }}-auth
+{% endfor %}
+}
+{% if accounting %}
+
+home_server_pool upstream-acct {
+	type = fail-over
+{% for s in servers %}
+	home_server = upstream{{ loop.index }}-acct
+{% endfor %}
+}
+{% endif %}
+
+realm upstream {
+	auth_pool = upstream-auth
+{% if accounting %}
+	acct_pool = upstream-acct
+{% endif %}
+	nostrip
+}
+{% endif %}
+
+client localhost {
+	ipaddr = 127.0.0.1
+	secret = '{{ secret }}'
+	require_message_authenticator = no
+	limit_proxy_state = no
+	nas_type = other
+}
+
+thread pool {
+	start_servers = 2
+	max_servers = 16
+	min_spare_servers = 1
+	max_spare_servers = 4
+	max_requests_per_server = 0
+	auto_limit_acct = no
+}
+
+modules {
+	always ok {
+		rcode = ok
+	}
+	always reject {
+		rcode = reject
+	}
+	always noop {
+		rcode = noop
+	}
+	pap {
+		normalise = yes
+	}
+	chap {
+	}
+	mschap {
+		use_mppe = yes
+		require_encryption = no
+		require_strong = no
+		with_ntdomain_hack = yes
+	}
+	files {
+		filename = {{ users }}
+	}
+	replicate {
+	}
+	eap {
+		default_eap_type = mschapv2
+		timer_expire = 60
+		ignore_unknown_eap_types = no
+		cisco_accounting_username_bug = no
+		max_sessions = ${max_requests}
+		md5 {
+		}
+		mschapv2 {
+			send_error = no
+		}
+	}
+}
+
+instantiate {
+}
+
+policy {
+{% if upstream and accounting %}
+	# Accounting-Kopie an den externen Server (mit dessen NAS-Kennung)
+	vpn_replicate_acct {
+		update request {
+			&NAS-Identifier := "{{ nas_id }}"
+{% if nas_ip %}
+			&NAS-IP-Address := {{ nas_ip }}
+{% endif %}
+		}
+		update control {
+			&Replicate-To-Realm := "upstream"
+		}
+		replicate
+	}
+
+{% endif %}
+	# Standardnetz (kein VLAN)
+	vpn_default_net {
+		if (&NAS-Identifier == "vpn-ipsec") {
+			update reply {
+				&Class := "vlan0"
+			}
+		}
+	}
+}
+
+server vpn {
+	listen {
+		type = auth
+		ipaddr = 127.0.0.1
+		port = 1812
+	}
+	listen {
+		type = acct
+		ipaddr = 127.0.0.1
+		port = 1813
+	}
+
+	authorize {
+{% if local_users %}
+		files {
+			notfound = 1
+			noop = 1
+		}
+		if (notfound || noop) {
+{% if upstream %}
+			update control {
+				&Proxy-To-Realm := "upstream"
+			}
+			return
+{% else %}
+			reject
+{% endif %}
+		}
+		update control {
+			&Tmp-String-1 := "local"
+		}
+		mschap
+		chap
+		eap {
+			ok = return
+		}
+		pap
+{% else %}
+		update control {
+			&Proxy-To-Realm := "upstream"
+		}
+{% endif %}
+	}
+
+	authenticate {
+		Auth-Type PAP {
+			pap
+		}
+		Auth-Type CHAP {
+			chap
+		}
+		Auth-Type MS-CHAP {
+			mschap
+		}
+		eap
+	}
+
+	preacct {
+	}
+
+	# Accounting wird lokal sofort bestaetigt und fuer RADIUS-Benutzer an den
+	# externen Server kopiert (ohne auf dessen Antwort zu warten: ein nicht
+	# erreichbarer Accounting-Server darf keine VPN-Verbindung trennen)
+	accounting {
+{% if upstream and accounting %}
+{% if local_regex %}
+		if (&User-Name !~ /^({{ local_regex }})$/) {
+			vpn_replicate_acct
+		}
+{% else %}
+		vpn_replicate_acct
+{% endif %}
+{% endif %}
+		ok
+	}
+{% if upstream %}
+
+	pre-proxy {
+		update proxy-request {
+			&NAS-Identifier := "{{ nas_id }}"
+{% if nas_ip %}
+			&NAS-IP-Address := {{ nas_ip }}
+{% endif %}
+		}
+	}
+
+	post-proxy {
+	}
+{% endif %}
+
+	post-auth {
+		# VLAN aus der Antwort (lokaler Benutzer oder externer RADIUS-Server)
+		if (&reply:Tunnel-Private-Group-Id) {
+			update request {
+				&Tmp-String-0 := "%{reply:Tunnel-Private-Group-Id}"
+			}
+		}
+		else {
+			update request {
+				&Tmp-String-0 := "none"
+			}
+		}
+		# Adressvorgaben des RADIUS-Servers gelten hier nicht (Adressbereiche je VLAN)
+		update reply {
+			&Framed-IP-Address !* ANY
+			&Framed-IP-Netmask !* ANY
+			&Framed-Pool !* ANY
+			&Framed-Route !* ANY
+			&Class !* ANY
+			&MS-Primary-DNS-Server !* ANY
+			&MS-Secondary-DNS-Server !* ANY
+		}
+		switch &Tmp-String-0 {
+			case "none" {
+{% if no_vlan_reject %}
+				if (&control:Tmp-String-1 == "local") {
+					vpn_default_net
+				}
+				else {
+					update reply {
+						&Reply-Message := "Kein VLAN zugewiesen"
+					}
+					reject
+				}
+{% else %}
+				vpn_default_net
+{% endif %}
+			}
+{% for v in vlans %}
+			case "{{ v.id }}" {
+				if (&NAS-Identifier == "vpn-ipsec") {
+					update reply {
+						&Class := "vlan{{ v.id }}"
+					}
+				}
+				elsif (&NAS-Identifier == "vpn-ocserv") {
+					update reply {
+						&Class := "OU=vlan{{ v.id }}"
+					}
+				}
+				elsif (&NAS-Identifier == "vpn-ppp") {
+					update reply {
+						&Framed-Pool := "vlan{{ v.id }}"
+{% for d in v.dns4 %}
+						&MS-{{ 'Primary' if loop.first else 'Secondary' }}-DNS-Server := {{ d }}
+{% endfor %}
+					}
+				}
+			}
+{% endfor %}
+			case {
+{% if unknown_reject %}
+				update reply {
+					&Reply-Message := "VLAN %{Tmp-String-0} ist auf dem VPN-Server nicht eingerichtet"
+				}
+				reject
+{% else %}
+				vpn_default_net
+{% endif %}
+			}
+		}
+
+		Post-Auth-Type REJECT {
+			ok
+		}
+	}
+}

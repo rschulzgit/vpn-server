@@ -4,9 +4,9 @@
 {% block content %}
 <h1>Clients</h1>
 <div class="panel">
-  <p class="muted">Legen Sie für jedes Gerät (Handy, Laptop, …) einen eigenen Client an. Jeder Client erhält automatisch Zugangsdaten für alle aktivierten Protokolle.</p>
+  <p class="muted">Legen Sie für jedes Gerät (Handy, Laptop, …) einen eigenen Client an. Jeder Client erhält automatisch Zugangsdaten für alle aktivierten Protokolle.{% if state.radius.enabled %} Benutzer des RADIUS-Servers brauchen keinen Client – siehe <a href="{{ url_for('radius_profiles') }}">Profile für RADIUS-Benutzer</a>.{% endif %}</p>
   <div class="table-wrap"><table>
-    <thead><tr><th>Name</th><th>Status</th><th>Notiz</th><th>WireGuard-IP</th><th>Tunnel</th><th></th></tr></thead>
+    <thead><tr><th>Name</th><th>Status</th><th>Notiz</th><th>WireGuard-IP</th>{% if vlans %}<th>VLAN</th>{% endif %}<th>Tunnel</th><th></th></tr></thead>
     <tbody>
     {% for c in state.clients.values() %}
       <tr>
@@ -18,11 +18,12 @@
         </td>
         <td>{{ c.note }}</td>
         <td><code>{{ c.wg.ip }}</code></td>
+        {% if vlans %}<td>{{ state.vlans[c.vlan].name if c.vlan and c.vlan in state.vlans else 'Standard' }}</td>{% endif %}
         <td>{{ 'gesamter Verkehr' if c.full_tunnel else 'nur Heimnetz' }}</td>
         <td><a class="btn small secondary" href="{{ url_for('client', name=c.name) }}">Profile &amp; Anleitung</a></td>
       </tr>
     {% else %}
-      <tr><td colspan="6" class="muted">Noch keine Clients angelegt.</td></tr>
+      <tr><td colspan="7" class="muted">Noch keine Clients angelegt.</td></tr>
     {% endfor %}
     </tbody>
   </table></div>
@@ -53,6 +54,15 @@
           <option value="split">Nur Zugriff aufs Heimnetz (Split-Tunnel)</option>
         </select>
       </div>
+      {% if vlans %}
+      <div>
+        <label for="vlan">VLAN</label>
+        <select id="vlan" name="vlan">
+          <option value="">Standardnetz</option>
+          {% for v in vlans %}<option value="{{ v.id }}">VLAN {{ v.id }} – {{ v.name }}</option>{% endfor %}
+        </select>
+      </div>
+      {% endif %}
     </div>
     <div class="actions"><button class="btn" type="submit">Client anlegen</button></div>
   </form>

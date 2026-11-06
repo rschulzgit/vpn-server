@@ -1,0 +1,21 @@
+[Unit]
+Description=VPN-Server: lokaler RADIUS-Dienst (Anmeldung, externer RADIUS-Server, VLAN-Zuordnung)
+Documentation=file:///opt/vpn-server/README.md
+After=network.target
+Before=strongswan.service accel-ppp.service ocserv.service
+
+[Service]
+Type=simple
+ExecStartPre=/usr/sbin/freeradius -C -d /etc/vpn-server/radius -l stdout
+ExecStart=/usr/sbin/freeradius -f -d /etc/vpn-server/radius -l stdout
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=2
+RuntimeDirectory=vpn-radius
+ProtectSystem=full
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

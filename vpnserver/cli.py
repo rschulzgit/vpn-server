@@ -166,6 +166,13 @@ def cmd_maintenance(_args) -> None:
         system.ddns_update(state)
         st.save(state)
         system.write_issue(state)
+    # Selbst-Update: taeglich pruefen, bei "automatisch" auch installieren
+    from . import updater
+    with st.locked():
+        state = _load()
+        msg = updater.maybe_auto_update(state)
+        st.save(state)
+    print(msg)
 
 
 def cmd_ddns(args) -> None:
@@ -175,6 +182,64 @@ def cmd_ddns(args) -> None:
         st.save(state)
     if not args.quiet:
         print(result)
+
+
+def cmd_update(args) -> None:
+    from . import updater
+    if args.action == "run":
+        sys.exit(updater.run_install())
+    if args.action == "run-rollback":
+        sys.exit(updater.run_rollback())
+    if args.action == "status":
+        stat = updater.status()
+        inst = updater.installed()
+        print(f"Installiert: {inst['version']} ({inst.get('sha', '')[:7] or '?'}, {inst.get('ref') or '?'})")
+        print(f"Status:      {stat['state']} {stat.get('message', '')}")
+        return
+    with st.locked():
+        state = _load()
+        u = updater.settings(state)
+        if args.action == "source":
+            repo = args.repo or u["repo"]
+            channel = args.channel or u["channel"]
+            branch = args.branch or u["branch"]
+            api = args.api or u["api"]
+            try:
+                updater.validate_settings(repo, channel, branch, api)
+            except updater.UpdateError as exc:
+                sys.exit(str(exc))
+            u.update(repo=repo, channel=channel, branch=branch, api=api)
+            if args.token is not None:
+                u["token"] = args.token
+            if args.auto is not None:
+                u["auto"] = args.auto == "on"
+            st.save(state)
+            print(f"Quelle: {repo} ({'Releases' if channel == 'release' else 'Branch ' + branch}), "
+                  f"automatisch: {'ja' if u['auto'] else 'nein'}")
+            return
+        try:
+            avail = updater.check(state)
+        except updater.UpdateError as exc:
+            sys.exit(f"Fehler: {exc}")
+        st.save(state)
+    inst = updater.installed()
+    print(f"Installiert: {inst['version']} ({inst.get('sha', '')[:7] or '?'})")
+    print(f"Verfuegbar:  {avail['version']} ({avail['sha'][:7]}, {avail['ref']})"
+          f"{' - Update verfuegbar' if avail['newer'] else ' - aktuell'}")
+    if args.action == "install":
+        if not avail["newer"] and not args.force:
+            print("Bereits aktuell.")
+            return
+        updater.start("install")
+        print(f"Update gestartet - Fortschritt: journalctl -fu {updater.UNIT} bzw. {updater.LOG_FILE}")
+    elif args.action == "rollback":
+        updater.start("rollback")
+        print("Wiederherstellung gestartet.")
+
+
+def cmd_stats_daemon(_args) -> None:
+    from . import stats
+    stats.run_daemon()
 
 
 def cmd_issue(_args) -> None:
@@ -219,6 +284,19 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("status", help="Dienste und Verbindungen anzeigen").set_defaults(func=cmd_status)
     sub.add_parser("maintenance", help="Taegliche Wartung").set_defaults(func=cmd_maintenance)
     sub.add_parser("issue", help="Konsolen-Banner neu schreiben").set_defaults(func=cmd_issue)
+    sub.add_parser("stats-daemon", help="Verkehrsstatistik erfassen (vpn-stats.service)").set_defaults(
+        func=cmd_stats_daemon)
+
+    p = sub.add_parser("update", help="Selbst-Update aus dem Repository (check, install, rollback, status, source)")
+    p.add_argument("action", choices=["check", "install", "rollback", "status", "source", "run", "run-rollback"])
+    p.add_argument("--repo")
+    p.add_argument("--channel", choices=["release", "branch"])
+    p.add_argument("--branch")
+    p.add_argument("--api")
+    p.add_argument("--token")
+    p.add_argument("--auto", choices=["on", "off"])
+    p.add_argument("--force", action="store_true", help="auch ohne neueren Stand installieren")
+    p.set_defaults(func=cmd_update)
 
     p = sub.add_parser("ddns", help="DynDNS aktualisieren")
     p.add_argument("--force", action="store_true")

@@ -1,5 +1,13 @@
 # Verwaltet von VPN-Server - manuelle Aenderungen werden ueberschrieben.
+{% if radius %}
+# Anmeldung ueber den lokalen RADIUS-Dienst (Class "OU=vlanN" waehlt die Gruppe/das VLAN)
+auth = "radius[config={{ radcli }}]"
+acct = "radius[config={{ radcli }}]"
+stats-report-time = 300
+config-per-group = {{ group_dir }}/
+{% else %}
 auth = "plain[passwd=/etc/vpn-server/ocpasswd]"
+{% endif %}
 tcp-port = {{ port }}
 udp-port = {{ port }}
 run-as-user = nobody

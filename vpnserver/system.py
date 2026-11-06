@@ -9,15 +9,17 @@ import io
 import ipaddress
 import json
 import os
+import re
 import shutil
 import tarfile
+import tempfile
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 
 from . import pki, util
-from .util import P, log
+from .util import P
 
 ISSUE_FILE = "/etc/issue"
 UPDATE_LOG = "/var/log/vpn-server-update.log"
@@ -134,13 +136,13 @@ def ddns_update(state: dict, force: bool = False) -> str:
         return "DynDNS ist deaktiviert."
     ip = detect_public_ip()
     if not ip:
-        cfg["last_result"] = "Oeffentliche IP konnte nicht ermittelt werden."
+        cfg["last_result"] = "Öffentliche IP konnte nicht ermittelt werden."
         return cfg["last_result"]
     if ip == cfg.get("last_ip") and not force:
-        return f"Unveraendert ({ip})."
+        return f"Unverändert ({ip})."
     url, auth = _ddns_url(cfg, ip)
     if not url.startswith("https://") and not url.startswith("http://"):
-        cfg["last_result"] = "Ungueltige Update-URL."
+        cfg["last_result"] = "Ungültige Update-URL."
         return cfg["last_result"]
     try:
         answer = _http_get(url, auth=auth)
@@ -165,7 +167,7 @@ def ddns_update(state: dict, force: bool = False) -> str:
 def letsencrypt_request(state: dict) -> tuple[bool, str]:
     host = state["server"].get("public_host", "")
     if not host or util.is_ip(host):
-        return False, "Fuer Let's Encrypt wird ein DNS-Name (z. B. DynDNS) als oeffentliche Adresse benoetigt."
+        return False, "Fuer Let's Encrypt wird ein DNS-Name (z. B. DynDNS) als öffentliche Adresse benötigt."
     if not util.have("certbot"):
         return False, "certbot ist nicht installiert."
     cmd = ["certbot", "certonly", "--standalone", "--non-interactive", "--agree-tos",
@@ -181,7 +183,7 @@ def letsencrypt_request(state: dict) -> tuple[bool, str]:
     err = (res.stderr or res.stdout or "").strip().splitlines()
     detail = " ".join(err[-6:])[:600]
     return False, ("Let's Encrypt fehlgeschlagen. Ist Port 80/TCP am Router auf diesen Server "
-                   "weitergeleitet und zeigt der DNS-Name auf Ihre oeffentliche IP? " + detail)
+                   "weitergeleitet und zeigt der DNS-Name auf Ihre öffentliche IP? " + detail)
 
 
 def le_cert_info() -> dict:
@@ -225,10 +227,10 @@ def set_network(dev: str, method: str, address: str = "", prefixlen: int = 24,
     Interface verzoegert neu."""
     info = network_info()
     if info["manager"] != "ifupdown":
-        raise ValueError("Die Netzwerkkonfiguration ist nur unter Debian (ifupdown) moeglich. "
+        raise ValueError("Die Netzwerkkonfiguration ist nur unter Debian (ifupdown) möglich. "
                          "Bitte eine DHCP-Reservierung im Router verwenden.")
     if not dev or "/" in dev or " " in dev:
-        raise ValueError("Ungueltiges Interface.")
+        raise ValueError("Ungültiges Interface.")
     lines = ["# Verwaltet von VPN-Server", "source /etc/network/interfaces.d/*", "",
              "auto lo", "iface lo inet loopback", "", f"auto {dev}"]
     if method == "static":
@@ -275,7 +277,7 @@ def restore_bytes(data: bytes) -> None:
     try:
         tar = tarfile.open(fileobj=io.BytesIO(data), mode="r:gz")
     except tarfile.TarError as exc:
-        raise ValueError("Keine gueltige Sicherungsdatei.") from exc
+        raise ValueError("Keine gültige Sicherungsdatei.") from exc
     with tar:
         names = tar.getnames()
         if "vpn-server/state.json" not in names:
@@ -285,7 +287,7 @@ def restore_bytes(data: bytes) -> None:
                     or m.name.startswith("vpn-server/")):
                 raise ValueError(f"Unerwarteter Eintrag in der Sicherung: {m.name}")
             if m.issym() or m.islnk() or m.isdev():
-                raise ValueError("Sicherung enthaelt unzulaessige Dateitypen.")
+                raise ValueError("Sicherung enthaelt unzulässige Dateitypen.")
         json.loads(tar.extractfile("vpn-server/state.json").read())
         # Aktuellen Stand sichern
         bdir = P("/var/backups")
@@ -370,3 +372,80 @@ def journal(unit: str, lines: int = 150) -> str:
         log_file = util.read_file("/var/log/accel-ppp/accel-ppp.log") or ""
         out += "\n--- /var/log/accel-ppp/accel-ppp.log ---\n" + "\n".join(log_file.splitlines()[-lines:])
     return out
+
+
+# --------------------------------------------------------------------------
+# RADIUS-Verbindungstest (direkt gegen den externen RADIUS-Server)
+# --------------------------------------------------------------------------
+
+def _radius_quote(value: str) -> str:
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def radius_test(state: dict, username: str, password: str, method: str = "pap",
+                server_index: int = 0) -> tuple[bool, str]:
+    """Sendet eine Test-Anmeldung an den externen RADIUS-Server und wertet die
+    Antwort (inkl. VLAN-Zuweisung) aus. Gibt (Erfolg, Meldung) zurueck."""
+    from . import vlan as vl
+    servers = state["radius"].get("servers") or []
+    if server_index >= len(servers):
+        return False, "Kein RADIUS-Server eingetragen."
+    srv = servers[server_index]
+    if not util.have("radclient"):
+        return False, "radclient ist nicht installiert (Paket freeradius-utils)."
+    pw_attr = "MS-CHAP-Password" if method == "mschap" else "User-Password"
+    attrs = "\n".join([
+        f"User-Name = {_radius_quote(username)}",
+        f"{pw_attr} = {_radius_quote(password)}",
+        f"NAS-Identifier = {_radius_quote(state['radius'].get('nas_identifier') or 'vpn-server')}",
+        "NAS-Port-Type = Virtual",
+        "Service-Type = Framed-User",
+        "Message-Authenticator = 0x00",
+        ""])
+    host = srv["host"]
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    with tempfile.NamedTemporaryFile("w", prefix="radius-", delete=True) as fh:
+        os.chmod(fh.name, 0o600)
+        fh.write(srv["secret"])
+        fh.flush()
+        res = util.run(["radclient", "-x", "-t", "4", "-r", "2", "-S", fh.name,
+                        f"{host}:{srv['auth_port']}", "auth"], input=attrs, timeout=30)
+    out = (res.stdout or "") + (res.stderr or "")
+    m = re.search(r"Received (Access-\w+)", out)
+    if not m:
+        if "No reply" in out or "no response" in out.lower():
+            return False, (f"Keine Antwort von {srv['host']}:{srv['auth_port']}. Ist dieser Server "
+                           "dort als RADIUS-Client mit demselben Geheimnis eingetragen, und ist "
+                           "der Port erreichbar?")
+        return False, "Fehler: " + out.strip()[-300:]
+    reply = out[m.end():]
+    msg = re.search(r'Reply-Message = "([^"]*)"', reply)
+    if m.group(1) != "Access-Accept":
+        text = f"Abgelehnt ({m.group(1)})."
+        if msg:
+            text += f" Meldung: {msg.group(1)}"
+        if method == "pap":
+            text += " Hinweis: Manche Server (z. B. Windows NPS) erlauben PAP nur, wenn es in der " \
+                    "Netzwerkrichtlinie aktiviert ist."
+        return False, text
+    vid = re.search(r'Tunnel-Private-Group-Id(?::\d+)? = "?([^"\n]+)"?', reply)
+    text = "Anmeldung erfolgreich."
+    ok = True
+    if vid:
+        v = vl.get(state, vid.group(1).strip())
+        if v:
+            text += f" VLAN {v['id']} ({v['name']}) zugewiesen."
+        elif state["radius"].get("unknown_vlan", "reject") == "reject":
+            ok = False
+            text += (f" Der Server weist VLAN {vid.group(1).strip()} zu, das hier nicht "
+                     "eingerichtet ist - die VPN-Anmeldung würde abgelehnt.")
+        else:
+            text += (f" Der Server weist VLAN {vid.group(1).strip()} zu, das hier nicht "
+                     "eingerichtet ist - Verbindung im Standardnetz.")
+    elif state["radius"].get("no_vlan") == "reject":
+        ok = False
+        text += " Kein VLAN zugewiesen - die VPN-Anmeldung würde abgelehnt (Einstellung)."
+    else:
+        text += " Kein VLAN zugewiesen (Standardnetz)."
+    return ok, text

@@ -16,14 +16,14 @@
   {% if enabled(state, 'wireguard') %}
   <div class="tab" data-tabpanel="main" data-name="wireguard">
     <p><strong>Empfohlen.</strong> Modernes, sehr schnelles VPN. Apps gibt es kostenlos für Android, iPhone/iPad, Windows, macOS und Linux.</p>
-    <div class="row" style="align-items:flex-start;gap:2rem">
+    <div class="row top-align gap-2">
       {% if wg_qr %}
       <div class="center">
         <div class="qr">{{ wg_qr | safe }}</div>
         <p class="hint">QR-Code mit der WireGuard-App scannen</p>
       </div>
       {% endif %}
-      <div style="flex:1;min-width:260px">
+      <div class="minw-240">
         <h3>Android / iPhone / iPad</h3>
         <ol class="steps">
           <li>App <strong>„WireGuard“</strong> aus dem Play Store bzw. App Store installieren.</li>

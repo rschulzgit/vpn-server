@@ -2,11 +2,11 @@
 {% from "_macros.html" import csrf, kv %}
 {% block title %}{{ c.name }}{% endblock %}
 {% block content %}
-<div class="row"><h1 style="margin:0">{{ c.name }}</h1>
+<div class="title-row"><h1>{{ c.name }}</h1>
   {% if not c.enabled %}<span class="badge err">gesperrt</span>{% endif %}
   <span class="right"><a href="{{ url_for('clients') }}">← alle Clients</a></span>
 </div>
-<p class="muted">{{ c.note }}</p>
+<p class="muted">{{ c.note }}{% if client_vlan %} <span class="badge">VLAN {{ client_vlan.id }} – {{ client_vlan.name }}</span>{% endif %}</p>
 
 {% if c.enabled %}
 <div class="panel">
@@ -18,10 +18,10 @@
       <input type="hidden" name="action" value="share"><button class="btn secondary" type="submit">Teilen-Link fürs Handy</button></form>
   </div>
   {% if share_url %}
-  <div class="infobox" style="margin-top:1rem">
-    <div class="row" style="align-items:flex-start">
+  <div class="infobox mt-1">
+    <div class="row top-align">
       <div class="qr small">{{ share_qr | safe }}</div>
-      <div style="flex:1;min-width:240px">
+      <div class="minw-240">
         <strong>Teilen-Link (24 Stunden gültig)</strong>
         <p>Scannen Sie den QR-Code mit der Kamera des Geräts, um Profile und Anleitung direkt dort herunterzuladen. Der Link funktioniert nur im Heimnetz{% if state.server.webui_public %} und aus dem Internet{% endif %}.</p>
         <p><code>{{ share_url }}</code> <button type="button" class="copy" data-copy="{{ share_url }}">kopieren</button></p>
@@ -47,8 +47,16 @@
       <label for="tunnel">Tunnel (WireGuard/OpenVPN)</label>
       <select id="tunnel" name="tunnel">
         <option value="full" {{ 'selected' if c.full_tunnel }}>Gesamter Internetverkehr</option>
-        <option value="split" {{ 'selected' if not c.full_tunnel }}>Nur Heimnetz (Split-Tunnel)</option>
+        <option value="split" {{ 'selected' if not c.full_tunnel }}>{{ 'Nur VLAN-Netz' if client_vlan else 'Nur Heimnetz' }} (Split-Tunnel)</option>
       </select>
+      {% if vlans %}
+      <label for="vlan">VLAN</label>
+      <select id="vlan" name="vlan">
+        <option value="" {{ 'selected' if not client_vlan }}>Standardnetz</option>
+        {% for v in vlans %}<option value="{{ v.id }}" {{ 'selected' if client_vlan and client_vlan.id == v.id }}>VLAN {{ v.id }} – {{ v.name }}</option>{% endfor %}
+      </select>
+      <p class="hint">Gilt für alle Protokolle dieses Clients. Bei einer Änderung muss das WireGuard-Profil neu importiert werden.</p>
+      {% endif %}
       <div class="actions"><button class="btn" type="submit">Speichern</button></div>
     </form>
   </div>
@@ -68,7 +76,7 @@
   </div>
   <div class="panel danger-zone">
     <h2>Verwaltung</h2>
-    <div class="actions" style="flex-direction:column;align-items:flex-start">
+    <div class="actions col">
       <form method="post" action="{{ url_for('client_action', name=c.name) }}" class="inline-form" data-confirm="{{ 'Client sperren? Alle Verbindungen werden getrennt, das Zertifikat wird widerrufen.' if c.enabled else 'Client entsperren?' }}">{{ csrf() }}
         <input type="hidden" name="action" value="toggle"><button class="btn secondary" type="submit">{{ 'Sperren' if c.enabled else 'Entsperren' }}</button></form>
       <form method="post" action="{{ url_for('client_action', name=c.name) }}" class="inline-form" data-confirm="Neuen IKEv2-PSK erzeugen?">{{ csrf() }}

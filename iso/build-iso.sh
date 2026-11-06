@@ -44,6 +44,8 @@ for tool in curl xorriso openssl sha256sum md5sum; do
 done
 
 mkdir -p "$OUT/cache"
+OUT="$(cd "$OUT" && pwd)"
+[ -n "$DEBIAN_ISO" ] && DEBIAN_ISO="$(readlink -f "$DEBIAN_ISO")"
 STAGE="$(mktemp -d "$OUT/stage.XXXXXX")"
 trap 'rm -rf "$STAGE"' EXIT
 
@@ -77,6 +79,7 @@ if [ -z "$DEBIAN_ISO" ]; then
   (cd "$OUT/cache" && grep " $ISO_NAME\$" "$STAGE/SHA256SUMS" | sha256sum -c -)
 fi
 log "Basis: $(basename "$DEBIAN_ISO")"
+basename "$DEBIAN_ISO" > "$OUT/debian-base.txt"
 
 # ---------------------------------------------------------------------------
 # 2. Payload (Anwendung + Installer + accel-ppp)
@@ -101,6 +104,11 @@ else
   log "Kein accel-ppp.deb - wird bei der Installation aus den Quellen gebaut"
 fi
 echo "$VERSION" > "$PAY/VERSION"
+# Herkunft fuer das Selbst-Update (Commit und Branch/Tag des Builds)
+GIT_SHA="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo "${GITHUB_SHA:-}")"
+GIT_REF="${GITHUB_REF_NAME:-$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || true)}"
+printf '{"version": "%s", "sha": "%s", "ref": "%s", "installed": "%s"}\n' \
+  "$VERSION" "$GIT_SHA" "$GIT_REF" "$(date -Is)" > "$PAY/BUILD_INFO.json"
 
 # ---------------------------------------------------------------------------
 # 3. Preseed-Dateien und Bootmenues
@@ -108,10 +116,18 @@ echo "$VERSION" > "$PAY/VERSION"
 PWHASH="$(openssl rand -base64 24 | openssl passwd -6 -stdin)"
 sed "s|@@PWHASH@@|$PWHASH|; s|@@PARTMAN@@|gesamte erste Festplatte|" "$ROOT/iso/preseed.cfg" > "$STAGE/preseed.cfg"
 # Manuelle Variante: Partitionierung und Netzwerkkarte werden abgefragt
-grep -vE '^d-i (partman|netcfg/choose_interface)' "$STAGE/preseed.cfg" \
+# (mehrzeilige Eintraege mit "\" am Zeilenende werden vollstaendig entfernt)
+awk 'skip && /\\$/ {next} skip {skip=0; next}
+     /^d-i (partman|netcfg\/choose_interface)/ {if ($0 ~ /\\$/) skip=1; next}
+     {print}' "$STAGE/preseed.cfg" \
   | sed 's|(gesamte erste Festplatte)|(wird abgefragt)|' > "$STAGE/preseed-manual.cfg"
 echo "d-i partman/mount_style select uuid" >> "$STAGE/preseed-manual.cfg"
+cp "$ROOT/iso/grub.cfg" "$STAGE/grub.cfg"
+cp "$ROOT/iso/isolinux.cfg" "$STAGE/isolinux.cfg"
 if [ "$E2E" = 1 ]; then
+  # Testvariante: Installer zusaetzlich auf der seriellen Konsole (fuer die CI-Auswertung)
+  sed -i 's| --- quiet| console=tty0 console=ttyS0,115200n8 --- quiet console=ttyS0,115200n8|' \
+    "$STAGE/grub.cfg" "$STAGE/isolinux.cfg" 2>/dev/null || true
   for f in preseed.cfg preseed-manual.cfg; do
     {
       echo "d-i debian-installer/exit/poweroff boolean true"
@@ -119,8 +135,6 @@ if [ "$E2E" = 1 ]; then
     } >> "$STAGE/$f"
   done
 fi
-cp "$ROOT/iso/grub.cfg" "$STAGE/grub.cfg"
-cp "$ROOT/iso/isolinux.cfg" "$STAGE/isolinux.cfg"
 
 MAPS=(
   -map "$PAY" /vpn-server

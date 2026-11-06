@@ -4,7 +4,14 @@ proto {{ proto }}
 dev {{ dev }}
 dev-type tun
 topology subnet
+{% if pool %}
+# Untere Haelfte dynamisch, obere Haelfte feste Adressen fuer Clients in VLANs
+server {{ network }} {{ netmask }} nopool
+ifconfig-pool {{ pool[0] }} {{ pool[1] }} {{ netmask }}
+client-config-dir {{ ccd }}
+{% else %}
 server {{ network }} {{ netmask }}
+{% endif %}
 ca {{ pki }}/ca.crt
 cert {{ pki }}/server.crt
 key {{ pki }}/server.key

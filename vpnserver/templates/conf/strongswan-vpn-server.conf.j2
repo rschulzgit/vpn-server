@@ -14,5 +14,24 @@ charon {
         xauth-generic {
             load = yes
         }
+{% if radius %}
+        # Anmeldung ueber den lokalen RADIUS-Dienst; die Gruppe (Class-Attribut)
+        # bestimmt den Adressbereich bzw. das VLAN
+        eap-radius {
+            load = yes
+            accounting = yes
+            accounting_close_on_timeout = no
+            class_group = yes
+            nas_identifier = vpn-ipsec
+            servers {
+                local {
+                    address = 127.0.0.1
+                    secret = {{ secret }}
+                    auth_port = 1812
+                    acct_port = 1813
+                }
+            }
+        }
+{% endif %}
     }
 }

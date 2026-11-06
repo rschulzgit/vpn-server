@@ -1,35 +1,120 @@
 {% extends "base.html" %}
+{% from "_macros.html" import icon %}
 {% block title %}Übersicht{% endblock %}
 {% block content %}
-<h1>Übersicht</h1>
+<div class="page-head">
+  <div><h1>Übersicht</h1><p class="page-sub">{{ topo.server }}{% if topo.host %} · {{ topo.host }}{% endif %}</p></div>
+  <div class="right row"><a class="btn secondary" href="{{ url_for('statistics_page') }}">{{ icon('stats') }}Statistik</a>
+    <a class="btn" href="{{ url_for('clients') }}#neu">+ Neuer Client</a></div>
+</div>
 {% for w in warnings %}<div class="warnbox">{{ w }}</div>{% endfor %}
-<div class="grid">
-  <div class="panel">
-    <h2>Server</h2>
-    <dl class="kv">
-      <dt>Öffentliche Adresse</dt><dd><code>{{ state.server.public_host or '– nicht gesetzt –' }}</code></dd>
-      <dt>LAN-IP</dt><dd><code>{{ lan_ip }}</code></dd>
-      <dt>Clients</dt><dd>{{ state.clients | length }}</dd>
-      <dt>Heimnetz-Zugriff</dt><dd>{{ 'erlaubt' if state.server.lan_access else 'gesperrt' }}</dd>
-    </dl>
-    <div class="actions"><a class="btn" href="{{ url_for('clients') }}#neu">+ Neuer Client</a></div>
+<div class="warnbox hidden" id="stale-box">Die Statistik wird gerade nicht erfasst (Dienst <code>vpn-stats</code>). Verbindungen werden trotzdem angezeigt.</div>
+
+<div class="dash">
+  <div class="card span-3 tile">
+    <div class="tile-label">Verbunden</div>
+    <div class="tile-value" id="t-conn">{{ sessions | length }}</div>
+    <div class="tile-sub" id="t-conn-sub">aktive VPN-Verbindungen</div>
   </div>
-  <div class="panel">
-    <h2>Verbunden</h2>
-    <div class="stat" id="session-count">{{ sessions | length }}</div>
-    <p class="muted">aktive VPN-Verbindungen</p>
-    <a href="{{ url_for('status_page') }}">Details →</a>
+  <div class="card span-3 tile">
+    <div class="tile-label"><i class="lg-line bg-down"></i>Download</div>
+    <div class="tile-value" id="t-down">–</div>
+    <div class="tile-sub">zu den VPN-Clients</div>
+    <svg class="spark" id="sp-down" aria-hidden="true"></svg>
   </div>
-  <div class="panel">
-    <h2>Dienste</h2>
-    <table>
+  <div class="card span-3 tile">
+    <div class="tile-label"><i class="lg-line bg-up"></i>Upload</div>
+    <div class="tile-value" id="t-up">–</div>
+    <div class="tile-sub">von den VPN-Clients</div>
+    <svg class="spark" id="sp-up" aria-hidden="true"></svg>
+  </div>
+  <div class="card span-3 tile">
+    <div class="tile-label">Datenvolumen heute</div>
+    <div class="tile-value" id="t-today">–</div>
+    <div class="tile-sub" id="t-today-sub">&nbsp;</div>
+  </div>
+
+  <div class="card span-8">
+    <div class="card-head"><h2>Durchsatz</h2><span class="badge accent">live · 5 Minuten</span>
+      <div class="legend right" id="live-legend">
+        <span class="lg"><i class="lg-line bg-down"></i>Download <strong id="lg-down">–</strong></span>
+        <span class="lg"><i class="lg-line bg-up"></i>Upload <strong id="lg-up">–</strong></span>
+      </div></div>
+    <div class="chart" id="live-chart"></div>
+  </div>
+  <div class="card span-4">
+    <div class="card-head"><h2>System</h2><span class="right muted" id="sys-uptime"></span></div>
+    <div class="meters">
+      <div><div class="meter-head"><span>CPU</span><span id="m-cpu-v">–</span></div><div class="meter" id="m-cpu"><i></i></div></div>
+      <div><div class="meter-head"><span>Arbeitsspeicher</span><span id="m-mem-v">–</span></div><div class="meter" id="m-mem"><i></i></div></div>
+      <div><div class="meter-head"><span>Datenträger</span><span id="m-disk-v">–</span></div><div class="meter" id="m-disk"><i></i></div></div>
+    </div>
+    <svg class="spark" id="sp-cpu" aria-hidden="true"></svg>
+    <div class="facts">
+      <div><span>Last (1/5/15 Min)</span><strong id="f-load">–</strong></div>
+      <div><span>Temperatur</span><strong id="f-temp">–</strong></div>
+      <div><span>CPU-Kerne</span><strong id="f-cpus">–</strong></div>
+      <div><span>LAN-IP</span><strong>{{ lan_ip or '–' }}</strong></div>
+    </div>
+  </div>
+
+  <div class="card span-12">
+    <div class="card-head"><h2>Netzwerkplan</h2><span class="muted">verbundene Geräte live</span>
+      <a class="right" href="{{ url_for('status_page') }}">Alle Verbindungen →</a></div>
+    <div class="topo">
+      <div class="topo-node"><div class="topo-icon">{{ icon('globe') }}</div><strong>Internet</strong><small id="topo-public">{{ topo.public_ip or topo.host or '–' }}</small></div>
+      <div class="topo-link"></div>
+      <div class="topo-node"><div class="topo-icon">{{ icon('router') }}</div><strong>Router</strong><small>{{ topo.gateway or '–' }}</small></div>
+      <div class="topo-link"></div>
+      <div class="topo-node server"><div class="topo-icon">{{ icon('shield') }}</div><strong>{{ topo.server }}</strong><small>{{ topo.lan_ip or '–' }}</small></div>
+      <div class="topo-link"></div>
+      <div class="topo-nets" id="topo-nets"></div>
+    </div>
+  </div>
+</div>
+
+<div class="filter-row">
+  <span class="label">Zeitraum</span>
+  <div class="seg" id="range" role="group" aria-label="Zeitraum">
+    <button type="button" data-range="24h" class="active">24 Stunden</button>
+    <button type="button" data-range="7d">7 Tage</button>
+    <button type="button" data-range="30d">30 Tage</button>
+  </div>
+</div>
+<div class="dash">
+  <div class="card span-8">
+    <div class="card-head"><h2>Datenvolumen</h2><span class="muted" id="hist-total"></span>
+      <div class="legend right">
+        <span class="lg"><i class="lg-box bg-down"></i>Download</span>
+        <span class="lg"><i class="lg-box bg-up"></i>Upload</span>
+      </div></div>
+    <div class="chart" id="hist-chart"></div>
+    <button type="button" class="btn small secondary table-toggle" id="hist-table-btn">Als Tabelle</button>
+    <div class="table-wrap hidden" id="hist-table"></div>
+  </div>
+  <div class="card span-4">
+    <div class="card-head"><h2>Top-Clients</h2><a class="right" href="{{ url_for('statistics_page') }}">Alle →</a></div>
+    <div class="barlist" id="top-clients"></div>
+  </div>
+  <div class="card span-4">
+    <div class="card-head"><h2>Verbindungen nach Protokoll</h2></div>
+    <div id="proto-bar" class="segbar-empty"></div>
+    <div class="legend" id="proto-legend"></div>
+  </div>
+  <div class="card span-8">
+    <div class="card-head"><h2>Dienste</h2><a class="right" href="{{ url_for('status_page') }}">Details →</a></div>
+    <div class="svc-list">
       {% for u in units if u.wanted %}
-      <tr><td>{{ u.label }}</td><td><span class="badge {{ 'ok' if u.active == 'active' else 'err' }}">{{ 'läuft' if u.active == 'active' else u.active }}</span></td></tr>
-      {% else %}
-      <tr><td class="muted">Keine Dienste aktiviert.</td></tr>
-      {% endfor %}
-    </table>
+      <div class="svc"><span>{{ u.label }}</span><span class="badge {{ 'ok' if u.active == 'active' else 'err' }}">{{ 'läuft' if u.active == 'active' else u.active }}</span></div>
+      {% else %}<span class="muted">Keine Dienste aktiviert.</span>{% endfor %}
+    </div>
   </div>
+  {% if topo.nets | length > 1 %}
+  <div class="card span-12">
+    <div class="card-head"><h2>Datenvolumen je VLAN</h2></div>
+    <div class="barlist" id="vlan-volume"></div>
+  </div>
+  {% endif %}
 </div>
 
 <div class="panel">
@@ -41,9 +126,14 @@
     <ul>
       <li><strong>DS-Lite / CGNAT:</strong> Viele Kabel- und Glasfaseranschlüsse haben keine eigene öffentliche IPv4-Adresse. Portfreigaben für IPv4 sind dann nicht möglich. Lösung: beim Provider eine öffentliche IPv4 (bzw. „Dual-Stack“) anfragen.</li>
       <li><strong>Test aus dem eigenen WLAN:</strong> Viele Router unterstützen kein „NAT-Loopback“. Testen Sie über das Mobilfunknetz (WLAN am Handy aus).</li>
-      <li><strong>Falsche Adresse:</strong> Die öffentliche Adresse (oben) muss auf Ihre aktuelle öffentliche IP zeigen.</li>
+      <li><strong>Falsche Adresse:</strong> Die öffentliche Adresse muss auf Ihre aktuelle öffentliche IP zeigen.</li>
       <li><strong>Doppel-NAT:</strong> Hängt Ihr Router hinter einem weiteren Router/Modem, müssen die Ports auf beiden weitergeleitet werden.</li>
     </ul>
   </details>
 </div>
+<script id="dash-data" type="application/json">{{ topo | tojson }}</script>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='charts.js') }}?v={{ version }}"></script>
+<script src="{{ url_for('static', filename='dashboard.js') }}?v={{ version }}"></script>
 {% endblock %}

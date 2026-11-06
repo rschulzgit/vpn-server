@@ -78,3 +78,131 @@ def test_port_conflict(client):
                                    "sstp_port": "4443", "openconnect_enabled": "1",
                                    "openconnect_port": "4443"})
     assert "berschneiden" in client.get("/settings").text
+
+
+def test_radius_vlan_flow(client):
+    tok = login_and_setup(client)
+    # VLAN anlegen (Fehler: Gateway ausserhalb, dann korrekt)
+    client.post("/settings", data={"section": "vlan-save", "csrf_token": tok, "id": "10",
+                                   "name": "Gäste", "address": "192.168.10.2/24",
+                                   "gateway": "192.168.11.1"})
+    assert "Gateway muss im VLAN-Netz" in client.get("/settings").text
+    client.post("/settings", data={"section": "vlan-save", "csrf_token": tok, "id": "10",
+                                   "name": "Gäste", "address": "192.168.10.2/24",
+                                   "gateway": "192.168.10.1", "dns": "192.168.10.1"})
+    s = st.load()
+    assert s["vlans"]["10"]["vpn_net"] == "10.67.1.0/24"
+    # Doppelte ID
+    client.post("/settings", data={"section": "vlan-save", "csrf_token": tok, "id": "10",
+                                   "address": "192.168.12.2/24"})
+    assert "bereits eingerichtet" in client.get("/settings").text
+    # Client im VLAN anlegen
+    client.post("/clients", data={"name": "gast", "tunnel": "full", "vlan": "10", "csrf_token": tok})
+    s = st.load()
+    assert s["clients"]["gast"]["vlan"] == "10"
+    assert s["clients"]["gast"]["wg"]["ip"] == "10.67.1.2"
+    page = client.get("/clients/gast")
+    assert "VLAN 10" in page.text
+    wg = client.get("/clients/gast/dl/wireguard").text
+    assert "Address = 10.67.1.2/32" in wg and "DNS = 192.168.10.1" in wg
+    # VLAN wechseln -> Standardnetz
+    client.post("/clients/gast/action", data={"action": "update", "tunnel": "full", "vlan": "",
+                                              "csrf_token": tok})
+    s = st.load()
+    assert s["clients"]["gast"]["vlan"] == "" and s["clients"]["gast"]["wg"]["ip"].startswith("10.66.66.")
+    client.post("/clients/gast/action", data={"action": "update", "tunnel": "split", "vlan": "10",
+                                              "csrf_token": tok})
+    wg = client.get("/clients/gast/dl/wireguard").text
+    assert "AllowedIPs = 192.168.10.0/24" in wg
+    # RADIUS-Server
+    client.post("/settings", data={"section": "radius", "csrf_token": tok, "enabled": "1",
+                                   "host1": "192.168.1.10", "auth_port1": "1812",
+                                   "acct_port1": "1813", "secret1": "geheim'", "local_users": "1"})
+    assert "Anführungszeichen" in client.get("/settings").text
+    client.post("/settings", data={"section": "radius", "csrf_token": tok, "enabled": "1",
+                                   "host1": "192.168.1.10", "auth_port1": "1812",
+                                   "acct_port1": "1813", "secret1": "Geheim123!", "local_users": "1",
+                                   "accounting": "1", "unknown_vlan": "reject"})
+    s = st.load()
+    assert s["radius"]["enabled"] and s["radius"]["servers"][0]["secret"] == "Geheim123!"
+    # Geheimnis bleibt erhalten, wenn das Feld leer ist
+    client.post("/settings", data={"section": "radius", "csrf_token": tok, "enabled": "1",
+                                   "host1": "192.168.1.10", "local_users": "1"})
+    assert st.load()["radius"]["servers"][0]["secret"] == "Geheim123!"
+    for page in ("/settings", "/settings?vlan=10", "/radius-profile", "/status"):
+        assert client.get(page).status_code == 200, page
+    for kind in ("mobileconfig-eap", "sswan-eap", "win-ikev2-eap", "win-sstp", "ca"):
+        r = client.get(f"/radius-profile/dl/{kind}")
+        assert r.status_code == 200, kind
+    assert b"AuthPassword" not in client.get("/radius-profile/dl/mobileconfig-eap").data
+    assert client.get("/radius-profile/dl/openvpn").status_code == 404
+    # VLAN loeschen -> Client ins Standardnetz
+    client.post("/settings", data={"section": "vlan-delete", "csrf_token": tok, "id": "10"})
+    s = st.load()
+    assert not s["vlans"] and s["clients"]["gast"]["vlan"] == ""
+
+
+def test_dashboard_stats_tools(client):
+    import json as _json
+    tok = login_and_setup(client)
+    client.post("/clients", data={"name": "csp-test", "tunnel": "full", "csrf_token": tok})
+    for page in ("/", "/statistik", "/werkzeuge", "/status", "/settings", "/clients", "/clients/csp-test",
+                 "/system", "/radius-profile"):
+        r = client.get(page)
+        assert r.status_code == 200, page
+        assert 'style="' not in r.text, f"Inline-Style (CSP) auf {page}"
+    live = client.get("/api/live").get_json()
+    assert "points" in live and "system" in live and "today" in live
+    hist = client.get("/api/history?range=30d").get_json()
+    assert len(hist["series"]) == 30
+    assert client.get("/api/history?range=quatsch").get_json()["range"] == "24h"
+    assert "events" in client.get("/api/events?limit=5").get_json()
+    r = client.post("/api/tools/ping", data={"host": "1.2.3.4;id", "csrf_token": tok})
+    assert r.status_code == 400 and "Ungültige" in r.get_json()["output"]
+    assert client.post("/api/tools/ping", data={"host": "x"}).status_code == 400  # ohne CSRF
+    r = client.post("/werkzeuge/wol", data={"action": "add", "name": "Büro-PC", "mac": "00:11:22:33:44:55",
+                                            "csrf_token": tok})
+    assert st.load()["tools"]["wol"][0]["mac"] == "00:11:22:33:44:55"
+    assert "Büro-PC" in client.get("/werkzeuge").text
+    client.post("/werkzeuge/wol", data={"action": "delete", "mac": "00:11:22:33:44:55", "csrf_token": tok})
+    assert st.load()["tools"]["wol"] == []
+    r = client.post("/werkzeuge/mitschnitt", data={"iface": "gibtsnicht", "seconds": "1", "csrf_token": tok})
+    assert r.status_code == 302
+    r = client.post("/status/trennen", data={"user": "test", "csrf_token": tok})
+    assert r.status_code == 302
+    del _json
+
+
+def test_software_update_settings(client):
+    tok = login_and_setup(client)
+    page = client.get("/system").text
+    assert "Software-Update" in page and "rschulzgit/vpn-server" in page
+    assert 'name="channel" value="release" checked' in page  # Standard: Releases ohne Token
+    client.post("/system", data={"action": "app-update-settings", "repo": "kaputt", "channel": "branch",
+                                 "branch": "main", "csrf_token": tok})
+    assert "Ungültiges Repository" in client.get("/system").text
+    client.post("/system", data={"action": "app-update-settings", "repo": "rschulzgit/vpn-server",
+                                 "channel": "branch", "branch": "claude/vpn-server-iso",
+                                 "token": "github_pat_" + "A" * 40, "auto": "1", "csrf_token": tok})
+    u = st.load()["update"]
+    assert u["branch"] == "claude/vpn-server-iso" and u["auto"] and u["token"].startswith("github_pat_")
+    assert "gespeichert" in client.get("/system").text
+    client.post("/system", data={"action": "app-update-settings", "repo": "rschulzgit/vpn-server",
+                                 "channel": "release", "branch": "", "token_clear": "1", "csrf_token": tok})
+    u = st.load()["update"]
+    assert u["token"] == "" and u["channel"] == "release" and not u["auto"]
+    assert client.get("/api/update/status").get_json()["state"] == "idle"
+
+
+def test_sponsor_link_only_on_system_page(client):
+    from vpnserver import __sponsor_url__
+    tok = login_and_setup(client)
+    assert __sponsor_url__ == "https://github.com/sponsors/rschulzgit"
+    page = client.get("/system").text
+    assert f'href="{__sponsor_url__}"' in page and "Projekt unterstützen" in page
+    assert 'rel="noopener noreferrer"' in page and "GPL-3.0-or-later" in page
+    client.post("/clients", data={"name": "sp-test", "tunnel": "full", "csrf_token": tok})
+    for other in ("/", "/clients", "/clients/sp-test", "/statistik", "/status", "/werkzeuge",
+                  "/settings", "/radius-profile"):
+        text = client.get(other).text
+        assert __sponsor_url__ not in text and "Projekt unterstützen" not in text, other

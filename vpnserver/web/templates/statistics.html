@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Statistik{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>Statistik</h1><p class="page-sub">Durch den Server geleiteter Datenverkehr der VPN-Clients</p></div></div>
+<div class="filter-row">
+  <span class="label">Zeitraum</span>
+  <div class="seg" id="range" role="group" aria-label="Zeitraum">
+    <button type="button" data-range="24h" class="active">24 Stunden</button>
+    <button type="button" data-range="7d">7 Tage</button>
+    <button type="button" data-range="30d">30 Tage</button>
+  </div>
+  <span class="muted" id="sum"></span>
+</div>
+<div class="dash">
+  <div class="card span-3 tile"><div class="tile-label"><i class="lg-box bg-down"></i>Download</div><div class="tile-value" id="k-down">–</div><div class="tile-sub">zu den Clients</div></div>
+  <div class="card span-3 tile"><div class="tile-label"><i class="lg-box bg-up"></i>Upload</div><div class="tile-value" id="k-up">–</div><div class="tile-sub">von den Clients</div></div>
+  <div class="card span-3 tile"><div class="tile-label">Aktive Benutzer</div><div class="tile-value" id="k-users">–</div><div class="tile-sub">mit Datenverkehr im Zeitraum</div></div>
+  <div class="card span-3 tile"><div class="tile-label">Spitzenwert</div><div class="tile-value" id="k-peak">–</div><div class="tile-sub" id="k-peak-sub">&nbsp;</div></div>
+  <div class="card span-12">
+    <div class="card-head"><h2>Datenvolumen</h2>
+      <div class="legend right"><span class="lg"><i class="lg-box bg-down"></i>Download</span><span class="lg"><i class="lg-box bg-up"></i>Upload</span></div></div>
+    <div class="chart" id="hist-chart"></div>
+  </div>
+  <div class="card span-7">
+    <div class="card-head"><h2>Je Benutzer</h2></div>
+    <div class="table-wrap"><table id="clients">
+      <thead><tr><th>Benutzer</th><th class="num">Download</th><th class="num">Upload</th><th class="num">Gesamt</th><th class="num">Anteil</th></tr></thead>
+      <tbody><tr><td colspan="5" class="muted">Wird geladen …</td></tr></tbody>
+    </table></div>
+  </div>
+  <div class="card span-5">
+    <div class="card-head"><h2>Je Netz</h2></div>
+    <div class="barlist" id="nets"></div>
+    <p class="hint">Standardnetz und VLANs (Verkehr über die jeweilige VLAN-Schnittstelle).</p>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='charts.js') }}?v={{ version }}"></script>
+<script src="{{ url_for('static', filename='statistics.js') }}?v={{ version }}"></script>
+{% endblock %}

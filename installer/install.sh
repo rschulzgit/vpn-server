@@ -3,6 +3,7 @@
 #
 #   sudo ./installer/install.sh            Installation auf einem bestehenden System
 #   ./installer/install.sh --iso           Aufruf durch den ISO-Installer (chroot, ohne Dienste-Start)
+#   ./installer/install.sh --upgrade       Aktualisierung einer bestehenden Installation (Selbst-Update)
 #
 # Optionen:
 #   --public-host NAME   Oeffentliche Adresse direkt setzen (sonst im Einrichtungsassistenten)
@@ -18,6 +19,7 @@ WITH_ACCEL=1
 while [ $# -gt 0 ]; do
   case "$1" in
     --iso) MODE=iso ;;
+    --upgrade) MODE=upgrade ;;
     --public-host) PUBLIC_HOST="$2"; shift ;;
     --no-accel) WITH_ACCEL=0 ;;
     -h|--help) sed -n 2,12p "$0"; exit 0 ;;
@@ -25,6 +27,11 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+
+# Gesamte Ausgabe zusaetzlich protokollieren (im ISO-Installer landet stdout sonst im Installer-Syslog)
+mkdir -p /var/log
+exec > >(tee -a /var/log/vpn-server-install.log) 2>&1
+echo "=== VPN-Server-Installation $(date -Is) (Modus: $MODE) ==="
 
 log() { echo -e "\033[1;34m>>>\033[0m $*"; }
 warn() { echo -e "\033[1;33m!!!\033[0m $*" >&2; }
@@ -50,6 +57,15 @@ fi
 # ocserv bringt einen Socket auf Port 443 mit, der mit SSTP kollidiert -> vorab maskieren
 systemctl mask ocserv.socket >/dev/null 2>&1 || true
 
+# Im ISO-Installer ist die CD zu diesem Zeitpunkt noch als Paketquelle eingetragen
+# (Debian deaktiviert sie erst ganz am Ende) -> fuer apt deaktivieren
+if [ "$MODE" = iso ]; then
+  sed -i -E 's/^(deb|deb-src)[[:space:]]+cdrom:/# &/' /etc/apt/sources.list 2>/dev/null || true
+  for f in /etc/apt/sources.list.d/*.sources; do
+    [ -f "$f" ] && grep -q "cdrom:" "$f" && sed -i '/^URIs:.*cdrom:/a Enabled: no' "$f"
+  done
+fi
+
 log "Paketlisten aktualisieren"
 apt-get update
 
@@ -58,16 +74,32 @@ PACKAGES=(
   wireguard-tools openvpn ocserv
   strongswan-swanctl charon-systemd libcharon-extauth-plugins libcharon-extra-plugins
   libstrongswan-extra-plugins libstrongswan-standard-plugins
+  # RADIUS (externer RADIUS-Server, VLAN-Zuordnung)
+  freeradius freeradius-utils
   # System
   nftables iproute2 kmod openssl ca-certificates curl sudo avahi-daemon
+  # Diagnose-Werkzeuge der Weboberflaeche
+  iputils-ping traceroute bind9-dnsutils tcpdump
   unattended-upgrades certbot
   # Weboberflaeche
   python3 python3-flask python3-jinja2 python3-qrcode python3-cryptography python3-gunicorn
 )
+MISSING=()
+for pkg in "${PACKAGES[@]}"; do
+  apt-cache show "$pkg" >/dev/null 2>&1 || MISSING+=("$pkg")
+done
+if [ ${#MISSING[@]} -gt 0 ]; then
+  echo "FEHLER: Pakete nicht verfuegbar: ${MISSING[*]}" >&2
+  exit 100
+fi
 log "Installiere Pakete"
 apt-get install "${APT_OPTS[@]}" --no-install-recommends "${PACKAGES[@]}"
 # ocserv startet nach der Installation mit Standardport 443 -> stoppen, vpnctl konfiguriert es
 systemctl stop ocserv.service >/dev/null 2>&1 || true
+# Der Standard-FreeRADIUS lauscht auf allen Schnittstellen -> nicht verwenden
+# (vpn-radius.service startet FreeRADIUS mit eigener Konfiguration nur auf 127.0.0.1)
+systemctl disable --now freeradius.service >/dev/null 2>&1 || true
+systemctl mask freeradius.service >/dev/null 2>&1 || true
 
 # ---------------------------------------------------------------------------
 # accel-ppp (SSTP, L2TP, PPTP)
@@ -105,6 +137,10 @@ rm -rf "$APP_DIR/vpnserver"
 cp -a "$SRC_DIR/vpnserver" "$APP_DIR/"
 find "$APP_DIR" -name '__pycache__' -prune -exec rm -rf {} +
 install -m 0644 "$SRC_DIR/README.md" "$APP_DIR/README.md" 2>/dev/null || true
+# Herkunft des installierten Stands (vom ISO-Build bzw. vom Selbst-Update)
+if [ -f "$SRC_DIR/BUILD_INFO.json" ]; then
+  install -m 0644 "$SRC_DIR/BUILD_INFO.json" "$APP_DIR/INSTALLED.json"
+fi
 
 cat > /usr/local/sbin/vpnctl <<'EOF'
 #!/bin/sh
@@ -156,6 +192,10 @@ systemctl enable nftables.service vpn-webui.service vpn-ddns.timer vpn-maintenan
 
 if [ "$MODE" = iso ]; then
   systemctl enable vpn-firstboot.service >/dev/null 2>&1 || true
+  # Installer lief auf Englisch -> System auf Deutsch umstellen
+  if locale -a 2>/dev/null | grep -qi '^de_DE\.utf8$'; then
+    update-locale LANG=de_DE.UTF-8 >/dev/null 2>&1 || true
+  fi
   cat > /etc/issue <<'EOF'
 
   VPN-Server (\n) - Ersteinrichtung laeuft ...
@@ -163,6 +203,18 @@ if [ "$MODE" = iso ]; then
 
 EOF
   log "Installation abgeschlossen - die Einrichtung erfolgt beim ersten Start."
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Aktualisierung: Konfiguration neu anwenden und Dienste neu starten
+# ---------------------------------------------------------------------------
+if [ "$MODE" = upgrade ]; then
+  log "Konfiguration anwenden"
+  /usr/local/sbin/vpnctl apply --quiet --no-webui-restart
+  systemctl restart vpn-webui.service
+  systemctl restart vpn-stats.service >/dev/null 2>&1 || true
+  log "Aktualisierung abgeschlossen."
   exit 0
 fi
 
