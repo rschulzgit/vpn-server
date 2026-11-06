@@ -31,6 +31,20 @@ sendkey() {
   python3 -c 'import socket,sys; s=socket.socket(socket.AF_UNIX); s.connect(sys.argv[1]); s.sendall(("sendkey %s\n" % sys.argv[2]).encode())' "$1" "$2" 2>/dev/null
 }
 
+# Firmware der Test-VM: UEFI (Installation ohne, Neustart mit Secure Boot)
+OVMF_CODE=/usr/share/OVMF/OVMF_CODE_4M.fd
+OVMF_CODE_SB=/usr/share/OVMF/OVMF_CODE_4M.secboot.fd
+OVMF_VARS_MS=/usr/share/OVMF/OVMF_VARS_4M.ms.fd
+FW_INSTALL=()
+FW_BOOT=()
+if [ -f "$OVMF_CODE" ] && [ -f "$OVMF_CODE_SB" ] && [ -f "$OVMF_VARS_MS" ] && [ "${E2E_FIRMWARE:-uefi}" = uefi ]; then
+  FW_INSTALL=(-machine q35 -drive "if=pflash,format=raw,unit=0,file=$OVMF_CODE,readonly=on"
+              -drive "if=pflash,format=raw,unit=1,file=$WORK/vm-vars.fd")
+  FW_BOOT=(-machine "q35,smm=on" -global "driver=cfi.pflash01,property=secure,value=on"
+           -drive "if=pflash,format=raw,unit=0,file=$OVMF_CODE_SB,readonly=on"
+           -drive "if=pflash,format=raw,unit=1,file=$WORK/vm-vars.fd")
+fi
+
 if [ -w /dev/kvm ]; then
   ACCEL=(-accel kvm -cpu host)
   KVM=1
@@ -47,7 +61,7 @@ log "Phase 0: Bootmenue (BIOS und UEFI mit Secure Boot)"
 boot_menu_test() {  # Name, QEMU-Firmware-Argumente ...
   local name="$1"; shift
   rm -f "boot-$name.pcap" "mon-$name.sock" "boot-$name.qcow2"
-  qemu-img create -f qcow2 "boot-$name.qcow2" 8G >/dev/null
+  qemu-img create -f qcow2 "boot-$name.qcow2" 16G >/dev/null
   qemu-system-x86_64 "${ACCEL[@]}" -m 2048 -smp 2 "$@" -display none -cdrom "$ISO" \
     -drive "file=$WORK/boot-$name.qcow2,if=virtio,format=qcow2" \
     -serial "file:$WORK/boot-$name-serial.log" \
@@ -106,9 +120,11 @@ xorriso -osirrox on -indev "$ISO" -extract /install.amd/vmlinuz vmlinuz \
   -extract /install.amd/initrd.gz initrd.gz >/dev/null 2>&1
 rm -f disk.qcow2
 qemu-img create -f qcow2 disk.qcow2 16G >/dev/null
+[ ${#FW_INSTALL[@]} -gt 0 ] && cp "$OVMF_VARS_MS" vm-vars.fd
+echo "Firmware: ${FW_INSTALL[*]:-BIOS (SeaBIOS)}"
 START=$(date +%s)
 : > install-serial.log
-timeout "$INSTALL_TIMEOUT" qemu-system-x86_64 "${ACCEL[@]}" -m 2048 -smp 2 -no-reboot \
+timeout "$INSTALL_TIMEOUT" qemu-system-x86_64 "${ACCEL[@]}" "${FW_INSTALL[@]}" -m 2048 -smp 2 -no-reboot \
   -display none -monitor none -serial file:install-serial.log \
   -drive file=disk.qcow2,if=virtio,format=qcow2 -cdrom "$ISO" \
   -kernel vmlinuz -initrd initrd.gz \
@@ -150,11 +166,15 @@ modprobe nbd max_part=8 >/dev/null 2>&1
 if qemu-nbd -c /dev/nbd0 disk.qcow2 >/dev/null 2>&1; then
   sleep 2
   mkdir -p /mnt/e2e
-  if mount -o ro /dev/nbd0p1 /mnt/e2e 2>/dev/null; then
-    cp /mnt/e2e/var/log/vpn-server-install.log install.log 2>/dev/null
-    cp /mnt/e2e/var/log/installer/syslog installer-syslog.log 2>/dev/null
-    umount /mnt/e2e
-  fi
+  for part in /dev/nbd0p1 /dev/nbd0p2 /dev/nbd0p3; do
+    if mount -o ro "$part" /mnt/e2e 2>/dev/null; then
+      if [ -d /mnt/e2e/var/log ]; then
+        cp /mnt/e2e/var/log/vpn-server-install.log install.log 2>/dev/null
+        cp /mnt/e2e/var/log/installer/syslog installer-syslog.log 2>/dev/null
+      fi
+      umount /mnt/e2e
+    fi
+  done
   qemu-nbd -d /dev/nbd0 >/dev/null 2>&1
 fi
 [ -s install.log ] && { echo "--- Ende von /var/log/vpn-server-install.log ---"; tail -n 40 install.log; }
@@ -202,7 +222,9 @@ for p in udp:51820 udp:1194 tcp:1194 udp:500 udp:4500 tcp:443 tcp:4443 udp:4443 
   FWD="$FWD,hostfwd=${p%%:*}:192.168.250.1:${p##*:}-:${p##*:}"
 done
 rm -f boot-serial.log
-qemu-system-x86_64 "${ACCEL[@]}" -m 2048 -smp 2 -display none -monitor none \
+if [ ! -f vm-vars.fd ]; then FW_BOOT=(); fi
+echo "Firmware beim Start: ${FW_BOOT[*]:-BIOS (SeaBIOS)}"
+qemu-system-x86_64 "${ACCEL[@]}" "${FW_BOOT[@]}" -m 2048 -smp 2 -display none -monitor none \
   -serial file:boot-serial.log -drive file=disk.qcow2,if=virtio,format=qcow2 \
   -netdev "user,id=n0,$FWD" -device virtio-net-pci,netdev=n0 \
   -daemonize -pidfile qemu.pid || { echo "QEMU-Start fehlgeschlagen"; exit 1; }
@@ -218,6 +240,9 @@ for _ in $(seq 1 180); do
   sleep 5
 done
 if curl -skf --max-time 5 --noproxy '*' https://127.0.0.1:8443/health >/dev/null; then
+  if [ ${#FW_BOOT[@]} -gt 0 ]; then
+    result "Erststart" "Installiertes System startet mit UEFI Secure Boot (shim, GRUB, Kernel signiert)" true
+  fi
   result "Erststart" "Weboberfläche nach dem ersten Start erreichbar (https://<IP>:8443)" true
 else
   strip_ansi boot-serial.log | tail -60

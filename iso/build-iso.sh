@@ -110,7 +110,10 @@ echo "$VERSION" > "$PAY/VERSION"
 PWHASH="$(openssl rand -base64 24 | openssl passwd -6 -stdin)"
 sed "s|@@PWHASH@@|$PWHASH|; s|@@PARTMAN@@|gesamte erste Festplatte|" "$ROOT/iso/preseed.cfg" > "$STAGE/preseed.cfg"
 # Manuelle Variante: Partitionierung und Netzwerkkarte werden abgefragt
-grep -vE '^d-i (partman|netcfg/choose_interface)' "$STAGE/preseed.cfg" \
+# (mehrzeilige Eintraege mit "\" am Zeilenende werden vollstaendig entfernt)
+awk 'skip && /\\$/ {next} skip {skip=0; next}
+     /^d-i (partman|netcfg\/choose_interface)/ {if ($0 ~ /\\$/) skip=1; next}
+     {print}' "$STAGE/preseed.cfg" \
   | sed 's|(gesamte erste Festplatte)|(wird abgefragt)|' > "$STAGE/preseed-manual.cfg"
 echo "d-i partman/mount_style select uuid" >> "$STAGE/preseed-manual.cfg"
 cp "$ROOT/iso/grub.cfg" "$STAGE/grub.cfg"

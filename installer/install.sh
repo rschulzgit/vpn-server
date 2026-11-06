@@ -55,6 +55,15 @@ fi
 # ocserv bringt einen Socket auf Port 443 mit, der mit SSTP kollidiert -> vorab maskieren
 systemctl mask ocserv.socket >/dev/null 2>&1 || true
 
+# Im ISO-Installer ist die CD zu diesem Zeitpunkt noch als Paketquelle eingetragen
+# (Debian deaktiviert sie erst ganz am Ende) -> fuer apt deaktivieren
+if [ "$MODE" = iso ]; then
+  sed -i -E 's/^(deb|deb-src)[[:space:]]+cdrom:/# &/' /etc/apt/sources.list 2>/dev/null || true
+  for f in /etc/apt/sources.list.d/*.sources; do
+    [ -f "$f" ] && grep -q "cdrom:" "$f" && sed -i '/^URIs:.*cdrom:/a Enabled: no' "$f"
+  done
+fi
+
 log "Paketlisten aktualisieren"
 apt-get update
 
