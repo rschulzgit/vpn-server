@@ -431,18 +431,21 @@ def radius_test(state: dict, username: str, password: str, method: str = "pap",
         return False, text
     vid = re.search(r'Tunnel-Private-Group-Id(?::\d+)? = "?([^"\n]+)"?', reply)
     text = "Anmeldung erfolgreich."
+    ok = True
     if vid:
         v = vl.get(state, vid.group(1).strip())
         if v:
             text += f" VLAN {v['id']} ({v['name']}) zugewiesen."
         elif state["radius"].get("unknown_vlan", "reject") == "reject":
+            ok = False
             text += (f" Der Server weist VLAN {vid.group(1).strip()} zu, das hier nicht "
                      "eingerichtet ist - die VPN-Anmeldung würde abgelehnt.")
         else:
             text += (f" Der Server weist VLAN {vid.group(1).strip()} zu, das hier nicht "
                      "eingerichtet ist - Verbindung im Standardnetz.")
+    elif state["radius"].get("no_vlan") == "reject":
+        ok = False
+        text += " Kein VLAN zugewiesen - die VPN-Anmeldung würde abgelehnt (Einstellung)."
     else:
-        text += " Kein VLAN zugewiesen" + (
-            " - die VPN-Anmeldung würde abgelehnt (Einstellung)."
-            if state["radius"].get("no_vlan") == "reject" else " (Standardnetz).")
-    return True, text
+        text += " Kein VLAN zugewiesen (Standardnetz)."
+    return ok, text
