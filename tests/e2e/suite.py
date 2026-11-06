@@ -903,7 +903,7 @@ def t_swan_prepare():
     pos = next(i for i, t in enumerate(TESTS) if t[2] is t_swan_prepare) + 1
     new = [(dev["cat"], dev["label"], make_swan_test(dev)) for dev in SWAN_DEVICES]
     new.append(("Windows 10/11", "L2TP/IPsec mit PSK + MSCHAPv2 (wie Windows-Skript)", t_l2tp))
-    new.append(("iPhone / iPad / Mac", "L2TP/IPsec (Benutzername, Passwort, Shared Secret)", t_l2tp))
+    new.append(("iPhone / iPad / Mac", "L2TP/IPsec: erneut verbinden nach Trennung", t_l2tp))
     TESTS[pos:pos] = new
     return f"({len(SWAN_DEVICES)} Geräteprofile)"
 
@@ -956,7 +956,10 @@ connect-delay 2000
     errors = tunnel_checks()
     check(not errors, ", ".join(errors))
     check(session_seen("e2e", "L2TP"), "Nicht als L2TP in der Statusanzeige")
-    nsx("swanctl --terminate --ike l2tp --force")
+    # Sauber trennen wie ein echter Client (StopCCN), dann IPsec beenden
+    sh(f"timeout 5 bash -c \"echo 'd vpn' > {WORK}/l2tp-control\"")
+    time.sleep(4)
+    nsx("swanctl --terminate --ike l2tp")
 
 
 # =============================================================================

@@ -145,10 +145,27 @@ Die Konfigurationsdateien der Dienste werden daraus erzeugt – manuelle Änderu
 
 ## Selbst bauen
 
-Das ISO wird per GitHub Actions gebaut (`.github/workflows/iso.yml`) und dabei in einer
-virtuellen Maschine vollautomatisch installiert und getestet: Jedes Protokoll wird mit echten
-Clients verbunden (WireGuard, OpenVPN UDP/TCP, IKEv2 PSK/Zertifikat/EAP, Cisco IPsec,
-L2TP/IPsec, SSTP, OpenConnect). Ein Tag `v*` veröffentlicht das ISO als Release.
+Das ISO wird per GitHub Actions gebaut (`.github/workflows/iso.yml`) und bei jedem Lauf
+automatisch getestet (`tests/e2e/`):
+
+- **Installationsmedium:** Bootmenü unter BIOS (isolinux) und UEFI mit Secure Boot (GRUB)
+- **Installation:** vollautomatisch in einer VM (UEFI), Neustart mit Secure Boot, Erststart,
+  Initialpasswort auf der Konsole, Weboberfläche erreichbar
+- **Weboberfläche:** Anmeldung, Assistent, Clients, alle Profile (51 Dateien), Sicherheitsheader,
+  CSRF, TLS
+- **Geräte** – nachgebildet mit Linux-Clients, die Identitäten, Anmeldeverfahren und
+  Krypto-Vorschläge des jeweiligen Geräts verwenden bzw. dessen Profil direkt auswerten:
+  WireGuard per QR-Code und Split-Tunnel, OpenVPN UDP mit TCP-Fallback, IKEv2 für Android
+  (PSK, RSA, MSCHAPv2), strongSwan-App (.sswan), iPhone/Mac (.mobileconfig, manuell),
+  Windows (Skript-Krypto, Standard-Krypto, Maschinenzertifikat), Linux, Cisco IPsec,
+  L2TP/IPsec, SSTP, OpenConnect mit DTLS und TCP-Fallback; jeweils Heimnetz, Internet und
+  DNS durch den Tunnel
+- **Profile:** QR-Code wird dekodiert und verglichen, Windows-Skripte laufen in PowerShell mit
+  nachgebildeten Windows-Befehlen, PKCS#12/.mobileconfig/.sswan werden geprüft
+- **Funktionen:** Client-zu-Client, Heimnetz-Sperre, Protokolle an/aus, Passwortwechsel,
+  Sperren/Entsperren, Schlüssel erneuern, Löschen, Teilen-Link, Sicherung, `vpnctl`, Neustart
+
+Ein Tag `v*` veröffentlicht das ISO als Release – nur wenn alle Tests bestanden sind.
 
 Lokal (Debian/Ubuntu mit Internetzugang):
 
