@@ -325,9 +325,11 @@ def create_app() -> Flask:
                  "detail": "Heimnetz " + ("erlaubt" if state["server"].get("lan_access", True)
                                           else "gesperrt")}]
         for v in vlan.vlans(state):
+            addr = vlan.server_address(v).split("/")[0] or "DHCP – wartet auf Adresse"
+            gw = vlan.effective_gateway(v)
             nets.append({"key": str(v["id"]), "name": f"VLAN {v['id']} · {v['name']}",
-                         "detail": v["address"].split("/")[0] + (f" · Gateway {v['gateway']}"
-                                                                if v.get("gateway") else "")})
+                         "detail": addr + (" (DHCP)" if vlan.is_dhcp(v) and vlan.server_address(v) else "")
+                         + (f" · Gateway {gw}" if gw else "")})
         public_ip = (util.read_file(stats.PUBLIC_IP_FILE) or "").strip()
         return {"server": state["server"].get("name") or "VPN-Server",
                 "host": state["server"].get("public_host", ""), "public_ip": public_ip,
@@ -734,6 +736,8 @@ def create_app() -> Flask:
                                cert=pki.server_cert_info(), ca_cn=pki.ca_common_name(),
                                vlans=[dict(v, link=vlan.link_state(v) if not util.DRYRUN else
                                            {"up": False, "text": "?"},
+                                           addr=vlan.server_address(v), gw=vlan.effective_gateway(v),
+                                           lease=vlan.lease(v),
                                            members=len(vlan.vlan_clients(state, v)),
                                            ifname=vlan.ifname(v), parent_eff=vlan.parent_of(v))
                                       for v in vlan.vlans(state)],

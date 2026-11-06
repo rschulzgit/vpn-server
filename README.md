@@ -152,7 +152,10 @@ Server-Adresse im VLAN) und er erreicht **nur dieses VLAN** bzw. über dessen Ga
 Internet – nicht das übrige Heimnetz, andere VLANs oder die Weboberfläche.
 
 - Voraussetzung: Der Switch-Port des Servers ist ein **Trunk** mit den VLANs als *tagged*.
-- Pro VLAN: ID, Name, Netzwerkkarte, feste Server-Adresse, Gateway (optional) und DNS-Server.
+- Pro VLAN: ID, Name, Netzwerkkarte, Server-Adresse – **fest** (mit optionalem Gateway) oder
+  **automatisch per DHCP** (Adresse und Gateway vom DHCP-Server des VLANs; ein eigener
+  DHCP-Client je VLAN verändert weder die Default-Route des Servers noch dessen DNS) – sowie
+  DNS-Server für die VPN-Clients.
 - Lokale Clients bekommen ihr VLAN in der Weboberfläche – auch für WireGuard, OpenVPN und
   IKEv2 mit Zertifikat/PSK, die ohne RADIUS auskommen.
 - Nicht eingerichtete VLAN-IDs werden standardmäßig abgelehnt (einstellbar), RADIUS-Benutzer
@@ -228,7 +231,8 @@ automatisch getestet (`tests/e2e/`):
   nachgebildeten Windows-Befehlen, PKCS#12/.mobileconfig/.sswan werden geprüft
 - **RADIUS/VLAN:** externer FreeRADIUS mit VLAN-Attributen, VLAN-Trunk an der Test-VM;
   RADIUS-Benutzer per IKEv2, Cisco IPsec, L2TP, SSTP und OpenConnect sowie lokale Geräte per
-  WireGuard, OpenVPN und SSTP landen im richtigen VLAN; Isolation, Ablehnungen, Accounting
+  WireGuard, OpenVPN, SSTP und IKEv2-Zertifikat landen im richtigen VLAN; VLAN mit Adresse per
+  DHCP (dnsmasq im Test-VLAN, auch nach Neustart); Isolation, Ablehnungen, Accounting
 - **Statistik & Werkzeuge:** Durchsatz und Datenvolumen je Client werden bei echtem Verkehr
   erfasst, Verbindungsprotokoll, Ping/DNS/Wake-on-LAN/Paketmitschnitt über die Weboberfläche
 - **Funktionen:** Client-zu-Client, Heimnetz-Sperre, Protokolle an/aus, Passwortwechsel,

@@ -1,0 +1,3 @@
+#!/bin/sh
+# Von udhcpc (busybox) je VLAN aufgerufen: $1 = deconfig | bound | renew | leasefail | nak
+exec /usr/local/sbin/vpnctl vlan-dhcp-hook "$1"

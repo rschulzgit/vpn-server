@@ -125,6 +125,17 @@
   }
   if (provider) { provider.addEventListener("change", ddnsFields); ddnsFields(); }
 
+  // VLAN: feste Adresse oder DHCP
+  var vmode = document.getElementById("vlan-mode");
+  function vlanFields() {
+    var dhcp = vmode.value === "dhcp";
+    document.querySelectorAll("[data-vlan-static]").forEach(function (el) { el.classList.toggle("hidden", dhcp); });
+    document.querySelectorAll("[data-vlan-dhcp]").forEach(function (el) { el.classList.toggle("hidden", !dhcp); });
+    var addr = document.getElementById("vlan-address");
+    if (addr) addr.required = !dhcp;
+  }
+  if (vmode) { vmode.addEventListener("change", vlanFields); vlanFields(); }
+
   // Netzwerk: statische Felder ein-/ausblenden
   var method = document.getElementById("net-method");
   function netFields() {

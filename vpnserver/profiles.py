@@ -37,12 +37,13 @@ def lan_subnet() -> str | None:
 def split_routes(state: dict, client: dict | None = None) -> list[str]:
     v = vlan.client_vlan(state, client) if client else None
     if v:
-        # Client in einem VLAN: nur das VLAN-Netz (und dessen DNS-Server) durch den Tunnel
-        net = ipaddress.ip_interface(v["address"]).network
-        routes = [str(net)]
+        # Client in einem VLAN: nur das VLAN-Netz (und dessen DNS-Server) durch den Tunnel.
+        # Bei DHCP ist das Netz erst bekannt, wenn der Server eine Adresse erhalten hat.
+        net = vlan.vlan_network(v)
+        routes = [str(net)] if net else []
         for d in vlan.vlan_dns(state, v):
             try:
-                if ipaddress.ip_address(d).version == 4 and ipaddress.ip_address(d) not in net:
+                if ipaddress.ip_address(d).version == 4 and (not net or ipaddress.ip_address(d) not in net):
                     routes.append(f"{d}/32")
             except ValueError:
                 pass

@@ -157,14 +157,15 @@
 {% if page == 'vlans' %}
 <div class="panel" id="vlans">
   <p>VPN-Benutzer landen – wie WLAN-Geräte mit dynamischer VLAN-Zuweisung – in einem bestimmten VLAN Ihres Netzes und erreichen nur dieses (bzw. über dessen Gateway das Internet). Die Zuordnung erfolgt pro Client oder über den RADIUS-Server.</p>
-  <p class="hint">Voraussetzung: Der Switch-Port des Servers ist ein <strong>Trunk</strong> mit den VLANs als <strong>tagged</strong>. Der Server erhält in jedem VLAN eine eigene Adresse und maskiert den Verkehr der VPN-Clients dorthin (NAT). VPN-Clients in einem VLAN haben keinen Zugriff auf die Weboberfläche. Bis zu {{ max_vlans }} VLANs.</p>
+  <p class="hint">Voraussetzung: Der Switch-Port des Servers ist ein <strong>Trunk</strong> mit den VLANs als <strong>tagged</strong>. Der Server erhält in jedem VLAN eine eigene Adresse (fest oder per DHCP) und maskiert den Verkehr der VPN-Clients dorthin (NAT). VPN-Clients in einem VLAN haben keinen Zugriff auf die Weboberfläche. Bis zu {{ max_vlans }} VLANs.</p>
   {% if vlans %}
   <div class="table-wrap"><table>
     <thead><tr><th>VLAN</th><th>Name</th><th>Schnittstelle</th><th>Server-Adresse</th><th>Gateway</th><th>VPN-Adressen</th><th>Clients</th><th>Link</th><th></th></tr></thead>
     <tbody>
     {% for v in vlans %}
       <tr><td><strong>{{ v.id }}</strong></td><td>{{ v.name }}</td><td><code>{{ v.ifname }}</code> auf <code>{{ v.parent_eff }}</code></td>
-        <td><code>{{ v.address }}</code></td><td><code>{{ v.gateway or '–' }}</code></td><td><code>{{ v.vpn_net }}</code></td>
+        <td>{% if v.mode == 'dhcp' %}{% if v.addr %}<code>{{ v.addr }}</code> <span class="muted">DHCP</span>{% elif v.lease.status %}<span class="badge err">{{ v.lease.status }}</span>{% else %}<span class="muted">DHCP – wartet auf Adresse</span>{% endif %}{% else %}<code>{{ v.address }}</code>{% endif %}</td>
+        <td>{% if v.gw %}<code>{{ v.gw }}</code>{% elif v.mode == 'dhcp' and not v.dhcp_gateway %}<span class="muted">kein Internet</span>{% else %}<code>–</code>{% endif %}</td><td><code>{{ v.vpn_net }}</code></td>
         <td>{{ v.members }}</td>
         <td><span class="badge {{ 'ok' if v.link.up else 'err' }}">{{ v.link.text }}</span></td>
         <td class="row">
@@ -191,10 +192,19 @@
           {% for i in interfaces %}<option value="{{ i }}" {{ 'selected' if e.parent == i }}>{{ i }}</option>{% endfor %}
         </select>
       </div>
-      <div><label for="vlan-address">Adresse des Servers im VLAN</label><input id="vlan-address" name="address" type="text" value="{{ e.address or '' }}" placeholder="192.168.10.2/24" required>
-        <p class="hint">Feste, freie Adresse mit Präfix.</p></div>
-      <div><label for="vlan-gw">Gateway (Router des VLANs)</label><input id="vlan-gw" name="gateway" type="text" value="{{ e.gateway or '' }}" placeholder="192.168.10.1">
+      <div><label for="vlan-mode">Adresse des Servers im VLAN</label>
+        <select id="vlan-mode" name="mode">
+          <option value="static" {{ 'selected' if e.mode != 'dhcp' }}>Feste Adresse</option>
+          <option value="dhcp" {{ 'selected' if e.mode == 'dhcp' }}>Automatisch per DHCP</option>
+        </select>
+        <p class="hint" data-vlan-dhcp>Adresse und Gateway kommen vom DHCP-Server des VLANs. Am besten dort eine Reservierung für den Server einrichten.</p></div>
+      <div data-vlan-static><label for="vlan-address">IP-Adresse mit Präfix</label><input id="vlan-address" name="address" type="text" value="{{ e.address or '' }}" placeholder="192.168.10.2/24">
+        <p class="hint">Feste, freie Adresse im VLAN.</p></div>
+      <div data-vlan-static><label for="vlan-gw">Gateway (Router des VLANs)</label><input id="vlan-gw" name="gateway" type="text" value="{{ e.gateway or '' }}" placeholder="192.168.10.1">
         <p class="hint">Leer = nur das VLAN-Netz selbst ist erreichbar, kein Internet.</p></div>
+      <div data-vlan-dhcp><label>Internet</label>
+        <label class="inline"><input type="checkbox" name="dhcp_gateway" value="1" {{ 'checked' if not vlan_edit or e.dhcp_gateway }}> Internet über dieses VLAN (Gateway vom DHCP-Server)</label>
+        <p class="hint">Aus = nur das VLAN-Netz selbst ist erreichbar.</p></div>
       <div><label for="vlan-dns">DNS-Server für dieses VLAN</label><input id="vlan-dns" name="dns" type="text" value="{{ (e.dns or []) | join(', ') }}" placeholder="leer = allgemeine DNS-Server">
       </div>
       <div><label for="vlan-net">VPN-Adressbereich (erweitert)</label><input id="vlan-net" name="vpn_net" type="text" value="{{ e.vpn_net or '' }}" placeholder="automatisch (10.67.x.0/24)">

@@ -1556,6 +1556,36 @@ def t_vlan_ikev2_cert():
     return f"({vip})"
 
 
+def vlan30_lease() -> str:
+    """Per DHCP bezogene Adresse des Servers im VLAN 30 ("" = keine)."""
+    out = remote("ip -4 -o addr show dev vlan30").stdout
+    m = re.search(r"inet (192\.168\.30\.(\d+))/24", out)
+    return m.group(1) if m and 50 <= int(m.group(2)) <= 60 else ""
+
+
+@test("RADIUS / VLAN", "VLAN 30 mit Adresse per DHCP: Server bezieht Adresse und Gateway, Client erreicht das VLAN")
+def t_vlan_dhcp():
+    r = remote("ip -o link | grep -i '52:54:00:00:99:01' | awk -F': ' '{print $2}'")
+    nic = r.stdout.strip().split("@")[0]
+    W.settings("vlan-save", {"id": "30", "name": "Büro", "parent": nic, "mode": "dhcp", "dhcp_gateway": "1"})
+    check(wait_until(lambda: bool(vlan30_lease()), 60, 3), "Keine DHCP-Adresse: " + remote(
+        "ip -4 addr show dev vlan30; systemctl status vpn-vlan-dhcp@vlan30 --no-pager -l | tail -15").stdout[-900:])
+    ip = vlan30_lease()
+    page = W.req("/settings/vlans")[2].decode(errors="replace")
+    check(f"{ip}/24" in page and "192.168.30.1" in page, "Adresse/Gateway nicht in der Weboberfläche")
+    routes = remote("ip route show table all dev vlan30").stdout
+    check("default via 192.168.30.1" in routes, f"Kein Gateway in der VLAN-Tabelle: {routes[-400:]}")
+    main = remote("ip route show table main default").stdout
+    check("vlan30" not in main, f"DHCP im VLAN hat die Default-Route des Servers verändert: {main}")
+    W.req("/clients", {"name": "vlan30dev", "password": "Vlan30-Geraet1", "tunnel": "full", "vlan": "30"})
+    r = wg_up(W.download("vlan30dev", "wireguard").decode())
+    check(r.returncode == 0, f"wg-quick: {r.stderr[-300:]}")
+    check(wait_until(lambda: vlan_peer(30) == ip, 20, 2), f"VLAN 30 nicht erreichbar (Antwort: '{vlan_peer(30)}')")
+    check(not vlan_peer(10), "VLAN 10 ist aus VLAN 30 erreichbar (Isolation verletzt)")
+    check(not lan_ok(), "Heimnetz des Servers ist aus VLAN 30 erreichbar (Isolation verletzt)")
+    return f"({ip} per DHCP, Gateway 192.168.30.1)"
+
+
 @test("RADIUS / VLAN", "RADIUS-Benutzer mit VLAN 10: IKEv2 EAP-MSCHAPv2 (Windows/Android/iOS)")
 def t_rad_eap():
     write_radius_swanctl()
@@ -1780,6 +1810,7 @@ def t_rad_after_reboot():
           "Keine Verbindung: " + tail("oc-reboot.log"))
     errors = vlan_checks(10, 20)
     check(not errors, ", ".join(errors))
+    check(wait_until(lambda: bool(vlan30_lease()), 60, 3), "VLAN 30: nach dem Neustart keine DHCP-Adresse")
 
 
 # =============================================================================

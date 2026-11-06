@@ -144,6 +144,16 @@ def test_radius_vlan_flow(client):
         assert r.status_code == 200, kind
     assert b"AuthPassword" not in client.get("/radius-profile/dl/mobileconfig-eap").data
     assert client.get("/radius-profile/dl/openvpn").status_code == 404
+    # VLAN mit Adresse per DHCP
+    client.post("/settings", data={"section": "vlan-save", "csrf_token": tok, "id": "30", "name": "Büro",
+                                   "mode": "dhcp", "dhcp_gateway": "1"})
+    s = st.load()
+    assert s["vlans"]["30"]["mode"] == "dhcp" and s["vlans"]["30"]["address"] == ""
+    page = client.get("/settings/vlans").text
+    assert "DHCP – wartet auf Adresse" in page and 'value="dhcp"' in page
+    assert 'value="dhcp" selected' in client.get("/settings/vlans?vlan=30").text
+    assert "wartet auf Adresse" in client.get("/").text   # Netzwerkplan
+    client.post("/settings", data={"section": "vlan-delete", "csrf_token": tok, "id": "30"})
     # VLAN loeschen -> Client ins Standardnetz
     client.post("/settings", data={"section": "vlan-delete", "csrf_token": tok, "id": "10"})
     s = st.load()

@@ -78,6 +78,8 @@ PACKAGES=(
   freeradius freeradius-utils
   # System
   nftables iproute2 kmod openssl ca-certificates curl sudo avahi-daemon
+  # DHCP-Client fuer VLANs mit automatischer Adresse (busybox udhcpc, unabhaengig vom LAN)
+  busybox
   # Diagnose-Werkzeuge der Weboberflaeche
   iputils-ping traceroute bind9-dnsutils tcpdump
   unattended-upgrades certbot
@@ -149,6 +151,7 @@ export PYTHONDONTWRITEBYTECODE=1
 exec /usr/bin/python3 -m vpnserver.cli "$@"
 EOF
 chmod 0755 /usr/local/sbin/vpnctl
+install -D -m 0755 "$SRC_DIR/installer/udhcpc-hook" /usr/local/lib/vpn-server/udhcpc-hook
 
 log "Richte systemd-Dienste ein"
 install -m 0644 "$SRC_DIR"/installer/systemd/*.service "$SRC_DIR"/installer/systemd/*.timer /etc/systemd/system/

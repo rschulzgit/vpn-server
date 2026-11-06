@@ -257,6 +257,54 @@ def test_wg_routes_for_vlan_blocks(monkeypatch):
     assert ["ip", "route", "del", "10.67.9.0/27", "dev", "wg0", "proto", "static"] in calls
 
 
+def test_vlan_dhcp(monkeypatch):
+    """VLAN mit Adresse per DHCP: Hook setzt Adresse und Routing-Tabelle, Profile kennen das Netz."""
+    from vpnserver import vlan
+    s = st.default_state()
+    st.ensure_server_keys(s)
+    s["vlans"]["30"] = vlan.validate(s, {"id": "30", "name": "Büro", "mode": "dhcp", "dhcp_gateway": "1",
+                                         "address": "ignoriert"})
+    v = s["vlans"]["30"]
+    assert v["mode"] == "dhcp" and v["address"] == "" and v["dhcp_gateway"]
+    c = st.new_client(s, "buero-pc", vlan="30", full_tunnel=False)
+    util.remove_file(f"{vlan.LEASE_DIR}/vlan30.json")
+    assert vlan.server_address(v) == "" and vlan.vlan_network(v) is None
+    calls = []
+
+    def fake_run(cmd, **_kw):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, "[]" if "show" in cmd else "", "")
+    monkeypatch.setattr(util, "DRYRUN", False)
+    monkeypatch.setattr(util, "run", fake_run)
+    t = str(vlan.table(v))
+    env = {"interface": "vlan30", "ip": "192.168.30.51", "subnet": "255.255.255.0",
+           "router": "192.168.30.1", "dns": "192.168.30.1", "lease": "43200"}
+    assert "192.168.30.51/24" in vlan.dhcp_event(s, "bound", env)
+    assert ["ip", "addr", "add", "192.168.30.51/24", "dev", "vlan30"] in calls
+    assert ["ip", "route", "add", "192.168.30.0/24", "dev", "vlan30", "src", "192.168.30.51", "table", t] in calls
+    assert ["ip", "route", "add", "default", "via", "192.168.30.1", "dev", "vlan30", "table", t] in calls
+    assert vlan.server_address(v) == "192.168.30.51/24" and vlan.effective_gateway(v) == "192.168.30.1"
+    assert profiles.split_routes(s, c)[0] == "192.168.30.0/24"
+    # Abgemeldet: Adresse weg, Tabelle verwirft alles, das Netz bleibt fuer Profile bekannt
+    calls.clear()
+    vlan.dhcp_event(s, "deconfig", {"interface": "vlan30"})
+    assert ["ip", "addr", "flush", "dev", "vlan30"] in calls
+    assert ["ip", "route", "add", "unreachable", "default", "table", t] in calls
+    assert vlan.server_address(v) == "" and str(vlan.vlan_network(v)) == "192.168.30.0/24"
+    # Ohne Internet ueber das VLAN: kein Default-Gateway in der Tabelle
+    v["dhcp_gateway"] = False
+    calls.clear()
+    vlan.dhcp_event(s, "renew", dict(env, mask="24"))
+    assert not [x for x in calls if x[:4] == ["ip", "route", "add", "default"] and "via" in x]
+    # Netz ueberschneidet sich mit einem VPN-Bereich: nicht uebernehmen, Fehler anzeigen
+    calls.clear()
+    msg = vlan.dhcp_event(s, "bound", dict(env, ip="10.66.66.200", router="10.66.66.1"))
+    assert "überschneidet" in msg and not [x for x in calls if x[:3] == ["ip", "addr", "add"]]
+    assert "überschneidet" in vlan.lease(v)["status"] and vlan.server_address(v) == ""
+    # Unbekannte Schnittstelle wird ignoriert
+    assert "kein VLAN" in vlan.dhcp_event(s, "bound", dict(env, interface="eth9"))
+
+
 def test_vlan_validation():
     from vpnserver import vlan
     s = st.default_state()

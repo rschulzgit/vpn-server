@@ -242,6 +242,23 @@ def cmd_stats_daemon(_args) -> None:
     stats.run_daemon()
 
 
+def cmd_vlan_dhcp_hook(args) -> None:
+    """Von udhcpc aufgerufen (vpn-vlan-dhcp@.service): Adresse eines VLANs uebernehmen."""
+    import time
+    from . import vlan
+    name = os.environ.get("interface", "")
+    state = st.load()
+    # Die Weboberflaeche speichert den Zustand erst nach dem Anwenden: kommt die Adresse
+    # schneller, kurz warten, bis das VLAN (mit DHCP) gespeichert ist
+    for _ in range(30):
+        v = next((x for x in vlan.vlans(state) if vlan.ifname(x) == name), None)
+        if args.event not in ("bound", "renew") or (v and vlan.is_dhcp(v)):
+            break
+        time.sleep(1)
+        state = st.load()
+    print(vlan.dhcp_event(state, args.event, dict(os.environ)), flush=True)
+
+
 def cmd_issue(_args) -> None:
     system.write_issue(_load())
 
@@ -286,6 +303,9 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("issue", help="Konsolen-Banner neu schreiben").set_defaults(func=cmd_issue)
     sub.add_parser("stats-daemon", help="Verkehrsstatistik erfassen (vpn-stats.service)").set_defaults(
         func=cmd_stats_daemon)
+    p = sub.add_parser("vlan-dhcp-hook", help=argparse.SUPPRESS)
+    p.add_argument("event")
+    p.set_defaults(func=cmd_vlan_dhcp_hook)
 
     p = sub.add_parser("update", help="Selbst-Update aus dem Repository (check, install, rollback, status, source)")
     p.add_argument("action", choices=["check", "install", "rollback", "status", "source", "run", "run-rollback"])
