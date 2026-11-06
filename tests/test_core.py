@@ -189,14 +189,18 @@ def test_radius_vlan_render():
     st.new_client(s, "bob", password="bobpass12345")
     st.new_client(s, "carol", password="carolpass123")["enabled"] = False
     assert vlan.radius_mode(s)
+    apply.ensure_pki(s)
     files = render.render_all(s)
     swan = files[render.SWANCTL_CONF][0]
     # Gruppenbasierte Zuordnung fuer EAP/XAuth, Zertifikat je Client
     assert "groups = vlan0" in swan and "groups = vlan10" in swan and "auth = eap-radius" in swan
     assert "auth = xauth-radius" in swan and "ikev2-cert-alice" in swan and "eap-alice" not in swan
-    # Zertifikats-Bindung je Client: das Client-Zertifikat, niemals der Schluessel
+    # Zertifikats-Bindung je Client: das Client-Zertifikat (nie der Schluessel), und zwar
+    # unter /etc/swanctl - das AppArmor-Profil von swanctl erlaubt nur dort Lesezugriffe
     certs = re.findall(r"^\s*certs = (\S+)", swan, re.M)
-    assert "/etc/vpn-server/pki/clients/alice.crt" in certs
+    alice = f"{render.SWANCTL_CLIENT_DIR}/alice.crt"
+    assert alice in certs and files[alice][0] == pki.client_cert_pem("alice")
+    assert all(c.startswith("/etc/swanctl/") or "/" not in c for c in certs)
     assert not [c for c in certs if c.endswith(".key")]
     assert "vlan10-ipsec {\n        addrs = 10.67.1.34-10.67.1.62\n        dns = 192.168.10.1" in swan
     assert "class_group = yes" in files[render.STRONGSWAN_CONF][0]
@@ -354,6 +358,11 @@ def test_updater_with_fake_github(tmp_path):
     u["channel"] = "release"
     avail = updater.check(s)
     assert avail["ref"] == "v9.9.9" and avail["newer"]
+    # Nach Installation bzw. Zuruecksetzen wird "neuer" gegen den installierten Stand bewertet
+    s["update"]["available"]["newer"] = False
+    assert updater.settings(s)["available"]["newer"]  # installiert ist noch die alte Version
+    assert not updater.is_newer(avail, {"version": "9.9.9", "sha": fake.sha})
+    assert updater.is_newer(dict(avail, channel="branch"), {"version": "9.9.9", "sha": "0" * 40})
     # Herunterladen, entpacken, pruefen
     root = updater._download(u, fake.sha, str(tmp_path / "new"))
     assert os.path.isfile(os.path.join(root, "installer", "install.sh"))

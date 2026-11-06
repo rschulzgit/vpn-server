@@ -1713,7 +1713,7 @@ def t_app_update():
     check(st.get("installed", {}).get("version") == "9.9.9", f"Installiert: {st.get('installed')}")
     check(wait_web(120), "Weboberfläche nach dem Update nicht erreichbar")
     W.login(ADMIN_PW)
-    check("Version 9.9.9" in W.req("/system")[2].decode(errors="replace"), "Neue Version nicht aktiv")
+    check(installed_version() == "9.9.9", f"Neue Version nicht aktiv ({installed_version()})")
 
     def all_active():
         return all(u["active"] == "active" for u in W.status()["units"] if u["wanted"])
@@ -1724,6 +1724,12 @@ def t_app_update():
     return "(1.x -> 9.9.9)"
 
 
+def installed_version() -> str:
+    page = W.req("/system")[2].decode(errors="replace")
+    m = re.search(r"<dt>Installiert</dt><dd>Version ([^\s<]+)", page)
+    return m.group(1) if m else ""
+
+
 @test("Selbst-Update", "Vorherige Version wiederherstellen")
 def t_app_rollback():
     W.req("/system", {"action": "app-update-rollback"})
@@ -1731,8 +1737,9 @@ def t_app_rollback():
     check(st.get("state") == "done", f"Wiederherstellung: {st.get('message')} | {st.get('log', '')[-600:]}")
     check(wait_web(120), "Weboberfläche nach der Wiederherstellung nicht erreichbar")
     W.login(ADMIN_PW)
+    check(installed_version() not in ("", "9.9.9"), f"Noch die neue Version aktiv ({installed_version()})")
     page = W.req("/system")[2].decode(errors="replace")
-    check("Version 9.9.9" not in page, "Noch die neue Version aktiv")
+    check('<span class="badge warn">neu</span>' in page, "9.9.9 wird nach dem Zurücksetzen nicht wieder angeboten")
     r = remote("vpnctl update status")
     check("9.9.9" not in r.stdout.split("\n")[0], f"vpnctl update status: {r.stdout}")
     r = wg_up(PROFILES[("e2e", "wireguard")].decode())

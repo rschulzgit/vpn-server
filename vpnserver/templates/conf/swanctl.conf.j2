@@ -2,7 +2,7 @@
 connections {
 {% if ikev2 %}
 {% if per_client_certs %}
-{% for c in clients %}
+{% for c in clients if c.cert_path %}
     # IKEv2 mit Client-Zertifikat fuer {{ c.name }} (Zuordnung zum Adressbereich/VLAN)
     ikev2-cert-{{ c.name }} {
         version = 2

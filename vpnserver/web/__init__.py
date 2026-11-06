@@ -281,7 +281,7 @@ def create_app() -> Flask:
                 warnings.append(f"Dienst '{u['label']}' läuft nicht ({u['active']}). Details unter Status.")
         if system.reboot_required():
             warnings.append("Nach Systemupdates ist ein Neustart erforderlich (System -> Neustart).")
-        avail = state.get("update", {}).get("available") or {}
+        avail = updater.settings(state).get("available") or {}
         if avail.get("newer") and not updater.running():
             warnings.append(f"Software-Update verfügbar: Version {avail.get('version')} "
                             f"({str(avail.get('sha', ''))[:7]}) – unter System → Software-Update installieren.")

@@ -48,6 +48,10 @@ SWANCTL_CA = "/etc/swanctl/x509ca/vpn-server-ca.crt"
 SWANCTL_CRT = "/etc/swanctl/x509/vpn-server.crt"
 SWANCTL_KEY = "/etc/swanctl/private/vpn-server.key"
 SWANCTL_CRL = "/etc/swanctl/x509crl/vpn-server.crl"
+# Client-Zertifikate fuer die Zuordnung je Client (VLAN-Betrieb). swanctl darf wegen
+# seines AppArmor-Profils nur unter /etc/swanctl lesen; eigener Ordner, damit sie
+# nicht zusaetzlich als allgemeine Zertifikate (x509/) geladen werden.
+SWANCTL_CLIENT_DIR = "/etc/swanctl/vpn-clients"
 STRONGSWAN_CONF = "/etc/strongswan.d/vpn-server.conf"
 ACCEL_CONF = "/etc/accel-ppp.conf"
 CHAP_SECRETS = util.ETC + "/chap-secrets"
@@ -152,10 +156,15 @@ def _ipsec_pool(v: dict | None) -> str:
 def render_strongswan(state: dict) -> dict:
     start, end = _range(state["proto"]["ikev2"]["subnet"])
     vlans = vlan.vlans(state)
-    clients = []
+    clients, client_certs = [], {}
     for c in active_clients(state):
         v = vlan.client_vlan(state, c)
-        clients.append(dict(c, pool=_ipsec_pool(v), cert_path=pki.client_paths(c["name"])[1]))
+        cert_path = ""
+        pem = pki.client_cert_pem(c["name"]) if vlans else ""
+        if pem:
+            cert_path = f"{SWANCTL_CLIENT_DIR}/{c['name']}.crt"
+            client_certs[cert_path] = (pem, 0o644)
+        clients.append(dict(c, pool=_ipsec_pool(v), cert_path=cert_path))
     # Gruppen fuer die Zuordnung nach der RADIUS-Anmeldung (Class-Attribut)
     groups = [{"group": "vlan0", "pool": "vpn-ipsec", "suffix": ""}]
     groups += [{"group": f"vlan{v['id']}", "pool": _ipsec_pool(v), "suffix": f"-vlan{v['id']}"}
@@ -182,6 +191,7 @@ def render_strongswan(state: dict) -> dict:
         SWANCTL_KEY: (util.read_file(pki.SERVER_KEY) or "", 0o600),
         SWANCTL_CRL: (util.read_file(pki.CRL) or "", 0o644),
     }
+    out.update(client_certs)
     return out
 
 
@@ -378,4 +388,4 @@ def render_all(state: dict) -> dict:
 
 
 # Verzeichnisse, deren Inhalt vollstaendig aus dem Zustand erzeugt wird
-MANAGED_DIRS = [ccd_dir("udp"), ccd_dir("tcp"), OCSERV_GROUP_DIR]
+MANAGED_DIRS = [ccd_dir("udp"), ccd_dir("tcp"), OCSERV_GROUP_DIR, SWANCTL_CLIENT_DIR]
