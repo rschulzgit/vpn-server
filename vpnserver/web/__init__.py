@@ -25,6 +25,36 @@ _login_failures: dict[str, list] = {}
 _fail_lock = threading.Lock()
 
 
+# Unterseiten der Einstellungen und des Systems: Schluessel -> (Titel, Untertitel)
+SETTINGS_PAGES = {
+    "allgemein": ("Allgemein", "Öffentliche Adresse, Name, DNS und Zugriff"),
+    "protokolle": ("Protokolle & Ports", "Aktive VPN-Protokolle, Ports und Adressbereiche"),
+    "radius": ("RADIUS", "Anmeldung über einen vorhandenen RADIUS-Server, auch mit VLAN-Zuweisung"),
+    "vlans": ("VLANs", "VPN-Benutzer in VLANs Ihres Netzes"),
+    "ipsec": ("IPsec-PSK", "Gemeinsamer Schlüssel für L2TP/IPsec und Cisco IPsec"),
+    "dyndns": ("DynDNS", "DNS-Namen automatisch auf die öffentliche IP aktualisieren"),
+    "zertifikate": ("Zertifikate", "Eigene CA, Serverzertifikat und Let's Encrypt"),
+}
+# Formular-Abschnitt -> Unterseite (fuer die Weiterleitung nach dem Speichern)
+SETTINGS_SECTION_PAGE = {
+    "general": "allgemein", "protocols": "protokolle", "radius": "radius", "radius-test": "radius",
+    "vlan-save": "vlans", "vlan-delete": "vlans", "ipsec": "ipsec", "ddns": "dyndns",
+    "ddns-update": "dyndns", "letsencrypt": "zertifikate",
+}
+SYSTEM_PAGES = {
+    "": ("Allgemein", "Information, Neustart und Administrator-Passwort"),
+    "netzwerk": ("Netzwerk", "LAN-Adresse des Servers"),
+    "updates": ("Updates", "Software-Update aus dem Repository und Betriebssystem-Updates"),
+    "sicherung": ("Sicherung", "Einstellungen, Clients und Schlüssel sichern und wiederherstellen"),
+    "dienste": ("Dienste", "Zustand der Dienste und ihre Protokolle"),
+}
+SYSTEM_ACTION_PAGE = {
+    "password": "", "network": "netzwerk", "update": "updates", "app-update-settings": "updates",
+    "app-update-check": "updates", "app-update-install": "updates", "app-update-rollback": "updates",
+    "restore": "sicherung",
+}
+
+
 def create_app() -> Flask:
     app = Flask(__name__)
     try:
@@ -60,7 +90,7 @@ def create_app() -> Flask:
     app.jinja_env.globals.update(
         csrf_token=csrf_token, PROTOCOL_LABELS=PROTOCOL_LABELS, PROTOCOLS=PROTOCOLS,
         version=__version__, enabled=st.enabled, project_url=__url__, sponsor_url=__sponsor_url__,
-        license_id=__license__)
+        license_id=__license__, SETTINGS_PAGES=SETTINGS_PAGES, SYSTEM_PAGES=SYSTEM_PAGES)
 
     def client_ip() -> str:
         return request.remote_addr or "?"
@@ -275,16 +305,16 @@ def create_app() -> Flask:
         if host and util.is_ip(host) and state["ddns"].get("provider", "none") == "none":
             warnings.append("Die öffentliche Adresse ist eine IP-Adresse. Ändert Ihr Provider die "
                             "IP (Zwangstrennung), funktionieren die Profile nicht mehr. Empfohlen: "
-                            "DynDNS-Namen verwenden (Einstellungen -> DynDNS oder im Router).")
+                            "DynDNS-Namen verwenden (Einstellungen → DynDNS oder im Router).")
         for u in units:
             if u["wanted"] and u["active"] not in ("active", "unbekannt"):
-                warnings.append(f"Dienst '{u['label']}' läuft nicht ({u['active']}). Details unter Status.")
+                warnings.append(f"Dienst '{u['label']}' läuft nicht ({u['active']}). Details unter System → Dienste.")
         if system.reboot_required():
-            warnings.append("Nach Systemupdates ist ein Neustart erforderlich (System -> Neustart).")
+            warnings.append("Nach Systemupdates ist ein Neustart erforderlich (System → Allgemein → Neustart).")
         avail = updater.settings(state).get("available") or {}
         if avail.get("newer") and not updater.running():
             warnings.append(f"Software-Update verfügbar: Version {avail.get('version')} "
-                            f"({str(avail.get('sha', ''))[:7]}) – unter System → Software-Update installieren.")
+                            f"({str(avail.get('sha', ''))[:7]}) – unter System → Updates installieren.")
         route = util.default_route_info()
         return render_template("dashboard.html", state=state, units=units, sessions=sessions,
                                warnings=warnings, lan_ip=route.get("ip", ""),
@@ -295,14 +325,20 @@ def create_app() -> Flask:
                  "detail": "Heimnetz " + ("erlaubt" if state["server"].get("lan_access", True)
                                           else "gesperrt")}]
         for v in vlan.vlans(state):
+            addr = vlan.server_address(v).split("/")[0] or "DHCP – wartet auf Adresse"
+            gw = vlan.effective_gateway(v)
             nets.append({"key": str(v["id"]), "name": f"VLAN {v['id']} · {v['name']}",
-                         "detail": v["address"].split("/")[0] + (f" · Gateway {v['gateway']}"
-                                                                if v.get("gateway") else "")})
+                         "detail": addr + (" (DHCP)" if vlan.is_dhcp(v) and vlan.server_address(v) else "")
+                         + (f" · Gateway {gw}" if gw else "")})
         public_ip = (util.read_file(stats.PUBLIC_IP_FILE) or "").strip()
         return {"server": state["server"].get("name") or "VPN-Server",
                 "host": state["server"].get("public_host", ""), "public_ip": public_ip,
                 "lan_ip": route.get("ip", ""), "gateway": route.get("gateway", ""),
-                "radius": bool(state["radius"].get("enabled")), "nets": nets}
+                "radius": bool(state["radius"].get("enabled")), "nets": nets,
+                # Geraete im Netzwerkplan verlinken: lokale Clients auf ihre Seite,
+                # RADIUS-Benutzer (ohne Client) auf die aktiven Verbindungen
+                "clients": sorted(state["clients"]),
+                "client_url": url_for("client", name="__NAME__"), "sessions_url": url_for("status_page")}
 
     # ------------------------------------------------------------------
     # Statistik-APIs (lesen nur die Dateien von vpn-stats.service)
@@ -442,13 +478,18 @@ def create_app() -> Flask:
                                                full_tunnel=full, vlan=vid))
             except ValueError as exc:
                 flash(str(exc), "error")
-                return redirect(url_for("clients"))
+                return redirect(url_for("client_new"))
             flash(f"Client '{name}' angelegt.", "ok")
             return redirect(url_for("client", name=name))
         state = get_state()
         online = {s["user"] for s in status.all_sessions(state)}
         return render_template("clients.html", state=state, online=online,
                                vlans=vlan.vlans(state))
+
+    @app.route("/clients/neu")
+    def client_new():
+        state = get_state()
+        return render_template("client_new.html", state=state, vlans=vlan.vlans(state))
 
     def _get_client(state: dict, name: str) -> dict:
         client = state["clients"].get(name)
@@ -652,14 +693,14 @@ def create_app() -> Flask:
 
     @app.route("/status")
     def status_page():
+        if request.args.get("log"):  # fruehere Adresse der Dienst-Protokolle
+            return redirect(url_for("system_page", page="dienste", log=request.args["log"]))
         state = get_state()
-        unit = request.args.get("log", "")
-        units = status.unit_states(state)
-        logtext = None
-        if unit and unit in {u["unit"] for u in units} | {"vpn-webui.service"}:
-            logtext = system.journal(unit)
-        return render_template("status.html", state=state, units=units,
-                               sessions=status.all_sessions(state), log_unit=unit, logtext=logtext)
+        return render_template("status.html", state=state, sessions=status.all_sessions(state))
+
+    @app.route("/status/protokoll")
+    def status_events():
+        return render_template("events.html", state=get_state())
 
     @app.route("/api/status")
     def api_status():
@@ -670,23 +711,33 @@ def create_app() -> Flask:
     # Einstellungen
     # ------------------------------------------------------------------
 
-    @app.route("/settings", methods=["GET", "POST"])
-    def settings():
+    @app.route("/settings", methods=["GET", "POST"], defaults={"page": ""})
+    @app.route("/settings/<page>", methods=["GET", "POST"])
+    def settings(page: str):
         if request.method == "POST":
             section = request.form.get("section", "")
             try:
                 _save_settings(section, request.form)
             except ValueError as exc:
                 flash(str(exc), "error")
-            return redirect(url_for("settings") + "#" + section)
+            return redirect(url_for("settings", page=SETTINGS_SECTION_PAGE.get(section, page or "allgemein")))
+        if not page:
+            if request.args.get("vlan"):
+                return redirect(url_for("settings", page="vlans", vlan=request.args["vlan"]))
+            return redirect(url_for("settings", page="allgemein"))
+        if page not in SETTINGS_PAGES:
+            abort(404)
         state = get_state()
         edit = vlan.get(state, request.args.get("vlan", ""))
         route = util.default_route_info()
-        return render_template("settings.html", state=state, providers=system.DDNS_PROVIDERS,
+        return render_template("settings.html", state=state, page=page, page_title=SETTINGS_PAGES[page][0],
+                               page_sub=SETTINGS_PAGES[page][1], providers=system.DDNS_PROVIDERS,
                                le_info=system.le_cert_info(), le_active=pki.le_available(),
                                cert=pki.server_cert_info(), ca_cn=pki.ca_common_name(),
                                vlans=[dict(v, link=vlan.link_state(v) if not util.DRYRUN else
                                            {"up": False, "text": "?"},
+                                           addr=vlan.server_address(v), gw=vlan.effective_gateway(v),
+                                           lease=vlan.lease(v),
                                            members=len(vlan.vlan_clients(state, v)),
                                            ifname=vlan.ifname(v), parent_eff=vlan.parent_of(v))
                                       for v in vlan.vlans(state)],
@@ -958,10 +1009,14 @@ def create_app() -> Flask:
     # System
     # ------------------------------------------------------------------
 
-    @app.route("/system", methods=["GET", "POST"])
-    def system_page():
+    @app.route("/system", methods=["GET", "POST"], defaults={"page": ""})
+    @app.route("/system/<page>", methods=["GET", "POST"])
+    def system_page(page: str):
+        if page not in SYSTEM_PAGES:
+            abort(404)
         if request.method == "POST":
             action = request.form.get("action", "")
+            back = url_for("system_page", page=SYSTEM_ACTION_PAGE.get(action, page))
             state = get_state()
             if action == "password":
                 if not st.verify_password(request.form.get("current", ""),
@@ -1043,7 +1098,7 @@ def create_app() -> Flask:
                           "kurz neu.", "ok")
                 except updater.UpdateError as exc:
                     flash(str(exc), "error")
-                return redirect(url_for("system_page") + "#software")
+                return redirect(back)
             elif action == "restore":
                 upload = request.files.get("backup")
                 if not upload:
@@ -1060,15 +1115,28 @@ def create_app() -> Flask:
                         flash(f"Wiederherstellung fehlgeschlagen: {exc}", "error")
             else:
                 abort(400)
-            return redirect(url_for("system_page"))
+            return redirect(back)
         state = get_state()
-        upd = updater.settings(state)
-        return render_template("system.html", state=state, net=system.network_info(), upd=upd,
-                               installed=updater.installed(), app_update=updater.status(),
-                               uptime=system.uptime(), os_name=system.os_name(),
-                               reboot=system.reboot_required(), hostname=util.hostname(),
-                               update_running=system.update_running(),
-                               update_log=(util.read_file(system.UPDATE_LOG) or "")[-6000:])
+        ctx = {"state": state, "page": page, "page_title": SYSTEM_PAGES[page][0],
+               "page_sub": SYSTEM_PAGES[page][1]}
+        if page == "":
+            ctx.update(net=system.network_info(), installed=updater.installed(), uptime=system.uptime(),
+                       os_name=system.os_name(), reboot=system.reboot_required(),
+                       hostname=util.hostname())
+        elif page == "netzwerk":
+            ctx.update(net=system.network_info())
+        elif page == "updates":
+            ctx.update(upd=updater.settings(state), installed=updater.installed(),
+                       app_update=updater.status(), update_running=system.update_running(),
+                       update_log=(util.read_file(system.UPDATE_LOG) or "")[-6000:])
+        elif page == "dienste":
+            units = status.unit_states(state)
+            unit = request.args.get("log", "")
+            logtext = None
+            if unit and unit in {u["unit"] for u in units} | {"vpn-webui.service"}:
+                logtext = system.journal(unit)
+            ctx.update(units=units, log_unit=unit, logtext=logtext)
+        return render_template("system.html", **ctx)
 
     @app.route("/api/update/status")
     def api_update_status():

@@ -417,7 +417,11 @@ def t_clients():
 
 @test("Weboberfläche", "Alle Seiten erreichbar, Profile herunterladbar")
 def t_pages_downloads():
-    for page in ("/", "/clients", "/status", "/settings", "/system", "/clients/e2e", "/status?log=strongswan.service"):
+    for page in ("/", "/clients", "/clients/neu", "/status", "/status/protokoll", "/settings/allgemein",
+                 "/settings/protokolle", "/settings/radius", "/settings/vlans", "/settings/ipsec",
+                 "/settings/dyndns", "/settings/zertifikate", "/system", "/system/netzwerk", "/system/updates",
+                 "/system/sicherung", "/system/dienste", "/clients/e2e", "/system/dienste?log=strongswan.service",
+                 "/status?log=strongswan.service"):
         code, _u, _r = W.req(page)
         check(code == 200, f"{page} -> {code}")
     kinds = ["wireguard", "wireguard-qr", "openvpn", "ca", "p12", "json", "credentials", "zip",
@@ -1448,10 +1452,9 @@ def in_net(ip: str, net: str) -> bool:
 
 @test("RADIUS / VLAN", "VLANs anlegen: Trunk mit VLAN 10 (mit Gateway) und VLAN 20 (ohne)")
 def t_vlan_setup():
-    r = remote("ip -o link | grep -i '52:54:00:00:99:01' | awk -F': ' '{print $2}'")
-    nic = r.stdout.strip().split("@")[0]
-    check(nic, f"Trunk-Netzwerkkarte nicht gefunden: {r.stdout} {r.stderr[-200:]}")
-    _c, _u, raw = W.req("/settings")
+    nic = trunk_nic()
+    check(nic, "Trunk-Netzwerkkarte nicht gefunden")
+    _c, _u, raw = W.req("/settings/vlans")
     check(f'value="{nic}"' in raw.decode(errors="replace"), f"{nic} nicht in der Schnittstellenauswahl")
     W.settings("vlan-save", {"id": "10", "name": "Gäste", "parent": nic, "address": "192.168.10.2/24",
                              "gateway": "192.168.10.1", "dns": "192.168.10.1"})
@@ -1462,7 +1465,7 @@ def t_vlan_setup():
           "VLANs nicht gespeichert")
 
     def links_up():
-        page = W.req("/settings")[2].decode(errors="replace")
+        page = W.req("/settings/vlans")[2].decode(errors="replace")
         return page.count(">verbunden<") >= 2
     check(wait_until(links_up, 30, 3), "VLAN-Schnittstellen nicht verbunden")
     out = remote("ip -d link show vlan10; ip rule; ip route show table 1001; ip route show table 1002").stdout
@@ -1550,6 +1553,49 @@ def t_vlan_ikev2_cert():
     check(vlan_session(VLAN_DEV, 20), "VLAN nicht in der Statusanzeige")
     nsx("swanctl --terminate --ike vlan-cert20 --force")
     return f"({vip})"
+
+
+def trunk_nic() -> str:
+    """Zweite Netzwerkkarte des Servers (VLAN-Trunk). Die VLAN-Schnittstellen darauf haben
+    dieselbe MAC-Adresse (z. B. "vlan10@enp0s9") und werden uebersprungen."""
+    r = remote("ip -o link | grep -i '52:54:00:00:99:01' | awk -F': ' '{print $2}'")
+    names = [n.strip() for n in r.stdout.splitlines() if n.strip() and "@" not in n]
+    return names[0] if names else ""
+
+
+def vlan30_lease() -> str:
+    """Per DHCP bezogene Adresse des Servers im VLAN 30 ("" = keine)."""
+    out = remote("ip -4 -o addr show dev vlan30").stdout
+    m = re.search(r"inet (192\.168\.30\.(\d+))/24", out)
+    return m.group(1) if m and 50 <= int(m.group(2)) <= 60 else ""
+
+
+@test("RADIUS / VLAN", "VLAN 30 mit Adresse per DHCP: Server bezieht Adresse und Gateway, Client erreicht das VLAN")
+def t_vlan_dhcp():
+    nic = trunk_nic()
+    flashes = W.settings("vlan-save", {"id": "30", "name": "Büro", "parent": nic, "mode": "dhcp",
+                                       "dhcp_gateway": "1"})
+    check(any("VLAN 30" in f and "gespeichert" in f for f in flashes), f"VLAN 30 nicht gespeichert: {flashes}")
+    if not wait_until(lambda: bool(vlan30_lease()), 60, 3):
+        diag = remote("ip -d addr show dev vlan30 2>&1; systemctl status vpn-vlan-dhcp@vlan30 --no-pager -l 2>&1 | head -12; "
+                      "journalctl -u vpn-vlan-dhcp@vlan30 --no-pager -n 25 2>&1; systemctl list-jobs --no-pager 2>&1 | head; "
+                      "ls -l /usr/local/lib/vpn-server/udhcpc-hook /bin/busybox 2>&1; "
+                      "cat /var/lib/vpn-server/vlan-dhcp/vlan30.json 2>&1").stdout
+        check(False, f"Keine DHCP-Adresse: {diag[-2500:]} | dnsmasq: {tail('dnsmasq-vlan30.log', 15)}")
+    ip = vlan30_lease()
+    page = W.req("/settings/vlans")[2].decode(errors="replace")
+    check(f"{ip}/24" in page and "192.168.30.1" in page, "Adresse/Gateway nicht in der Weboberfläche")
+    routes = remote("ip route show table all dev vlan30").stdout
+    check("default via 192.168.30.1" in routes, f"Kein Gateway in der VLAN-Tabelle: {routes[-400:]}")
+    main = remote("ip route show table main default").stdout
+    check("vlan30" not in main, f"DHCP im VLAN hat die Default-Route des Servers verändert: {main}")
+    W.req("/clients", {"name": "vlan30dev", "password": "Vlan30-Geraet1", "tunnel": "full", "vlan": "30"})
+    r = wg_up(W.download("vlan30dev", "wireguard").decode())
+    check(r.returncode == 0, f"wg-quick: {r.stderr[-300:]}")
+    check(wait_until(lambda: vlan_peer(30) == ip, 20, 2), f"VLAN 30 nicht erreichbar (Antwort: '{vlan_peer(30)}')")
+    check(not vlan_peer(10), "VLAN 10 ist aus VLAN 30 erreichbar (Isolation verletzt)")
+    check(not lan_ok(), "Heimnetz des Servers ist aus VLAN 30 erreichbar (Isolation verletzt)")
+    return f"({ip} per DHCP, Gateway 192.168.30.1)"
 
 
 @test("RADIUS / VLAN", "RADIUS-Benutzer mit VLAN 10: IKEv2 EAP-MSCHAPv2 (Windows/Android/iOS)")
@@ -1725,7 +1771,7 @@ def t_app_update():
 
 
 def installed_version() -> str:
-    page = W.req("/system")[2].decode(errors="replace")
+    page = W.req("/system/updates")[2].decode(errors="replace")
     m = re.search(r"<dt>Installiert</dt><dd>Version ([^\s<]+)", page)
     return m.group(1) if m else ""
 
@@ -1738,7 +1784,7 @@ def t_app_rollback():
     check(wait_web(120), "Weboberfläche nach der Wiederherstellung nicht erreichbar")
     W.login(ADMIN_PW)
     check(installed_version() not in ("", "9.9.9"), f"Noch die neue Version aktiv ({installed_version()})")
-    page = W.req("/system")[2].decode(errors="replace")
+    page = W.req("/system/updates")[2].decode(errors="replace")
     check('<span class="badge warn">neu</span>' in page, "9.9.9 wird nach dem Zurücksetzen nicht wieder angeboten")
     r = remote("vpnctl update status")
     check("9.9.9" not in r.stdout.split("\n")[0], f"vpnctl update status: {r.stdout}")
@@ -1776,6 +1822,9 @@ def t_rad_after_reboot():
           "Keine Verbindung: " + tail("oc-reboot.log"))
     errors = vlan_checks(10, 20)
     check(not errors, ", ".join(errors))
+    check(wait_until(lambda: bool(vlan30_lease()), 60, 3), "VLAN 30: nach dem Neustart keine DHCP-Adresse: " + remote(
+        "systemctl status vpn-vlan-dhcp@vlan30 --no-pager -l 2>&1 | head -12; "
+        "journalctl -u vpn-vlan-dhcp@vlan30 -b --no-pager -n 15 2>&1").stdout[-1500:])
 
 
 # =============================================================================

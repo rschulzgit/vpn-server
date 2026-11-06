@@ -1,0 +1,15 @@
+[Unit]
+Description=VPN-Server: Adresse per DHCP im VLAN (%i)
+Documentation=https://github.com/rschulzgit/vpn-server
+# Kein BindsTo= auf die Geraete-Unit: vpnctl legt die VLAN-Schnittstelle vor dem Start an
+# und beendet diesen Dienst vor dem Loeschen selbst. Fehlt die Schnittstelle, beendet sich
+# udhcpc und wird nach RestartSec erneut gestartet.
+StartLimitIntervalSec=0
+
+[Service]
+# Eigener DHCP-Client je VLAN (busybox udhcpc): setzt nur die Adresse der
+# VLAN-Schnittstelle und die Routing-Tabelle des VLANs, nie die Default-Route
+# des Servers oder /etc/resolv.conf.
+ExecStart=/bin/busybox udhcpc -f -R -i %i -s /usr/local/lib/vpn-server/udhcpc-hook -x hostname:%H -t 5 -T 3 -A 20
+Restart=always
+RestartSec=5

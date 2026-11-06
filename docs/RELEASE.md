@@ -11,7 +11,12 @@ Protokolle: WireGuard (QR-Code), OpenVPN UDP/TCP, IKEv2/IPsec (Zertifikat, PSK, 
 Cisco IPsec (IKEv1 XAuth), SSTP, OpenConnect/AnyConnect, PPTP (optional, unsicher).
 
 Optional: Anmeldung über einen vorhandenen RADIUS-Server (z. B. Windows NPS) und VLAN-Zuweisung
-wie beim WLAN-Controller (Tunnel-Private-Group-Id), VLAN pro Client für WireGuard/OpenVPN.
+wie beim WLAN-Controller (Tunnel-Private-Group-Id), VLAN pro Client für WireGuard/OpenVPN; die
+Adresse des Servers im VLAN fest oder per DHCP.
+
+Weboberfläche: Übersicht mit Live-Durchsatz und Netzwerkplan, Statistik je Client, aktive
+Verbindungen und Verbindungsprotokoll, Werkzeuge (Ping, Traceroute, DNS, Speedtest, Wake-on-LAN,
+Paketmitschnitt) und Software-Update direkt aus diesem Repository (Releases, mit Rückfallsicherung).
 
 Dieses ISO wurde automatisch in einer virtuellen Maschine installiert und mit echten Clients für alle Protokolle getestet.
 Ausführliche Anleitung: siehe README im Repository.

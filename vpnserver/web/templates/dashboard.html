@@ -5,7 +5,7 @@
 <div class="page-head">
   <div><h1>Übersicht</h1><p class="page-sub">{{ topo.server }}{% if topo.host %} · {{ topo.host }}{% endif %}</p></div>
   <div class="right row"><a class="btn secondary" href="{{ url_for('statistics_page') }}">{{ icon('stats') }}Statistik</a>
-    <a class="btn" href="{{ url_for('clients') }}#neu">+ Neuer Client</a></div>
+    <a class="btn" href="{{ url_for('client_new') }}">{{ icon('plus') }}Client hinzufügen</a></div>
 </div>
 {% for w in warnings %}<div class="warnbox">{{ w }}</div>{% endfor %}
 <div class="warnbox hidden" id="stale-box">Die Statistik wird gerade nicht erfasst (Dienst <code>vpn-stats</code>). Verbindungen werden trotzdem angezeigt.</div>
@@ -102,7 +102,7 @@
     <div class="legend" id="proto-legend"></div>
   </div>
   <div class="card span-8">
-    <div class="card-head"><h2>Dienste</h2><a class="right" href="{{ url_for('status_page') }}">Details →</a></div>
+    <div class="card-head"><h2>Dienste</h2><a class="right" href="{{ url_for('system_page', page='dienste') }}">Details →</a></div>
     <div class="svc-list">
       {% for u in units if u.wanted %}
       <div class="svc"><span>{{ u.label }}</span><span class="badge {{ 'ok' if u.active == 'active' else 'err' }}">{{ 'läuft' if u.active == 'active' else u.active }}</span></div>

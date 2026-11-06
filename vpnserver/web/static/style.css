@@ -89,7 +89,7 @@ pre { background: var(--code-bg); padding: .8rem; border-radius: 10px; overflow:
 /* ---------------------------------------------------------------- Layout */
 .sidebar {
   position: fixed; inset: 0 auto 0 0; width: 236px; background: var(--side-bg); color: var(--side-text);
-  display: flex; flex-direction: column; z-index: 30; padding: 14px 12px;
+  display: flex; flex-direction: column; z-index: 30; padding: 14px 12px; overflow-y: auto;
 }
 .brand { display: flex; align-items: center; gap: .7rem; color: #fff; padding: .4rem .5rem 1.2rem; }
 .brand:hover { text-decoration: none; }
@@ -104,7 +104,19 @@ pre { background: var(--code-bg); padding: .8rem; border-radius: 10px; overflow:
 }
 .side-nav a:hover, .side-link:hover { color: #fff; background: rgba(255, 255, 255, .05); text-decoration: none; }
 .side-nav a.active { color: #fff; background: var(--side-active); }
-.side-foot { margin-top: auto; display: flex; flex-direction: column; gap: .4rem; }
+.side-nav details.nav-group { margin: 0; }
+.nav-group summary {
+  display: flex; align-items: center; gap: .75rem; color: var(--side-text); padding: .62rem .75rem;
+  border-radius: 5px; font-weight: 500; cursor: pointer; list-style: none; user-select: none;
+}
+.nav-group summary::-webkit-details-marker { display: none; }
+.nav-group summary:hover { color: #fff; background: rgba(255, 255, 255, .05); }
+.nav-group summary.current { color: #fff; }
+.nav-group summary .chev { margin-left: auto; width: 15px; height: 15px; opacity: .6; transition: transform .15s ease; }
+.nav-group[open] summary .chev { transform: rotate(90deg); }
+.nav-sub { display: flex; flex-direction: column; gap: 1px; margin: 1px 0 4px; }
+.side-nav .nav-sub a { padding: .42rem .75rem .42rem 2.75rem; font-size: .9rem; font-weight: 400; }
+.side-foot { margin-top: auto; padding-top: .8rem; display: flex; flex-direction: column; gap: .4rem; }
 .side-foot form { margin: 0; }
 .side-foot small { color: #5e6a7c; padding: 0 .75rem; font-size: .75rem; }
 .shell { margin-left: 236px; min-height: 100vh; display: flex; flex-direction: column; }
@@ -371,6 +383,9 @@ footer { text-align: center; color: var(--muted); font-size: .85rem; padding: 1r
 .topo-devices { display: flex; flex-wrap: wrap; gap: .3rem 0; margin-top: .3rem; }
 .topo-dev { display: inline-flex; align-items: center; gap: .4rem; font-size: .84rem; max-width: 100%; margin-right: .9rem; }
 .topo-dev span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+a.topo-dev { color: inherit; padding: .1rem .3rem; margin-left: -.3rem; border-radius: 4px; }
+a.topo-dev:hover { background: var(--panel-2); text-decoration: none; }
+a.topo-dev:hover span { color: var(--accent); }
 .topo-dev small { color: var(--muted); font-variant-numeric: tabular-nums; }
 .topo-empty { color: var(--faint); font-size: .82rem; margin-top: .35rem; }
 @media (max-width: 900px) {

@@ -43,11 +43,14 @@
       if (!mine.length) { h("div", "topo-empty", "Keine Geräte verbunden", card); return; }
       var list = h("div", "topo-devices", null, card);
       mine.slice(0, 24).forEach(function (s) {
-        var d = h("span", "topo-dev", null, list);
+        var known = (topo.clients || []).indexOf(s.user) >= 0;
+        var d = h("a", "topo-dev", null, list);
+        d.href = known ? topo.client_url.replace("__NAME__", encodeURIComponent(s.user)) : topo.sessions_url;
         h("i", "dot bg-p" + protoSlot(s.proto), null, d);
         h("span", null, s.user || "?", d);
         h("small", null, (s.proto || "") + " · " + (s.vip || ""), d);
-        d.title = (s.user || "") + " – " + (s.proto || "") + ", " + (s.vip || "") + (s.remote ? ", von " + s.remote : "");
+        d.title = (s.user || "") + " – " + (s.proto || "") + ", " + (s.vip || "") + (s.remote ? ", von " + s.remote : "") +
+          (known ? " · Client öffnen" : " · Verbindungen anzeigen");
       });
       if (mine.length > 24) h("span", "topo-dev", "+" + (mine.length - 24) + " weitere", list);
     });

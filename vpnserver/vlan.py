@@ -189,21 +189,25 @@ def validate(state: dict, data: dict, old_id: str | None = None) -> dict:
     parent = str(data.get("parent", "")).strip()
     if parent and not re.match(r"^[A-Za-z0-9_.:-]{1,15}$", parent):
         raise ValueError("Ungültiger Schnittstellenname.")
-    try:
-        iface = ipaddress.ip_interface(str(data.get("address", "")).strip())
-    except ValueError:
-        raise ValueError("Ungültige Server-Adresse im VLAN (Format 192.168.10.2/24).") from None
-    if iface.version != 4 or iface.network.prefixlen > 30 or iface.network.prefixlen < 8 \
-            or iface.ip in (iface.network.network_address, iface.network.broadcast_address):
-        raise ValueError("Ungültige Server-Adresse im VLAN (IPv4 mit Präfix, z. B. 192.168.10.2/24).")
-    gateway = str(data.get("gateway", "")).strip()
-    if gateway:
+    mode = "dhcp" if str(data.get("mode", "static")) == "dhcp" else "static"
+    iface = None
+    gateway = ""
+    if mode == "static":
         try:
-            gw = ipaddress.ip_address(gateway)
+            iface = ipaddress.ip_interface(str(data.get("address", "")).strip())
         except ValueError:
-            raise ValueError("Ungültiges Gateway.") from None
-        if gw not in iface.network or gw == iface.ip:
-            raise ValueError("Das Gateway muss im VLAN-Netz liegen.")
+            raise ValueError("Ungültige Server-Adresse im VLAN (Format 192.168.10.2/24).") from None
+        if iface.version != 4 or iface.network.prefixlen > 30 or iface.network.prefixlen < 8 \
+                or iface.ip in (iface.network.network_address, iface.network.broadcast_address):
+            raise ValueError("Ungültige Server-Adresse im VLAN (IPv4 mit Präfix, z. B. 192.168.10.2/24).")
+        gateway = str(data.get("gateway", "")).strip()
+        if gateway:
+            try:
+                gw = ipaddress.ip_address(gateway)
+            except ValueError:
+                raise ValueError("Ungültiges Gateway.") from None
+            if gw not in iface.network or gw == iface.ip:
+                raise ValueError("Das Gateway muss im VLAN-Netz liegen.")
     dns = [d.strip() for d in str(data.get("dns", "")).replace(";", ",").split(",") if d.strip()]
     for d in dns:
         if not util.is_ip(d):
@@ -217,27 +221,31 @@ def validate(state: dict, data: dict, old_id: str | None = None) -> dict:
         raise ValueError(f"Ungültiger VPN-Adressbereich: {vnet}") from None
     if net.version != 4 or not 16 <= net.prefixlen <= 24 or not net.is_private:
         raise ValueError("Der VPN-Adressbereich muss ein privates IPv4-Netz von /16 bis /24 sein.")
-    v = {"id": vid, "name": name, "parent": parent, "address": str(iface), "gateway": gateway,
+    v = {"id": vid, "name": name, "parent": parent, "mode": mode,
+         "address": str(iface) if iface else "", "gateway": gateway,
+         "dhcp_gateway": mode == "dhcp" and str(data.get("dhcp_gateway", "")) in ("1", "on", "yes", "true"),
          "dns": dns, "slot": slot, "vpn_net": str(net)}
-    # Ueberschneidungen pruefen
+    # Ueberschneidungen pruefen (bei DHCP ist das VLAN-Netz erst mit der Adresse bekannt)
     from .state import vpn_subnets
     others = [ipaddress.ip_network(n) for n in vpn_subnets(state)]
     others += [vpn_net(o) for o in vlans(state) if str(o["id"]) != str(old_id or "")]
     for o in others:
         if net.overlaps(o):
             raise ValueError(f"Der VPN-Adressbereich {net} überschneidet sich mit {o}.")
-        if iface.network.overlaps(o):
+        if iface and iface.network.overlaps(o):
             raise ValueError(f"Das VLAN-Netz {iface.network} überschneidet sich mit dem VPN-Bereich {o}.")
-    for o in vlans(state):
-        if str(o["id"]) == str(old_id or ""):
-            continue
-        if ipaddress.ip_interface(o["address"]).network.overlaps(iface.network):
-            raise ValueError(f"Das VLAN-Netz {iface.network} überschneidet sich mit VLAN {o['id']}.")
-    lan = util.default_route_info()
-    if lan.get("ip") and lan.get("prefixlen"):
-        lan_net = ipaddress.ip_interface(f"{lan['ip']}/{lan['prefixlen']}").network
-        if lan_net.overlaps(iface.network) and (parent or lan.get("dev")) == lan.get("dev"):
-            raise ValueError(f"Das VLAN-Netz {iface.network} überschneidet sich mit dem Heimnetz {lan_net}.")
+    if iface:
+        for o in vlans(state):
+            if str(o["id"]) == str(old_id or ""):
+                continue
+            onet = vlan_network(o)
+            if onet and onet.overlaps(iface.network):
+                raise ValueError(f"Das VLAN-Netz {iface.network} überschneidet sich mit VLAN {o['id']}.")
+        lan = util.default_route_info()
+        if lan.get("ip") and lan.get("prefixlen"):
+            lan_net = ipaddress.ip_interface(f"{lan['ip']}/{lan['prefixlen']}").network
+            if lan_net.overlaps(iface.network) and (parent or lan.get("dev")) == lan.get("dev"):
+                raise ValueError(f"Das VLAN-Netz {iface.network} überschneidet sich mit dem Heimnetz {lan_net}.")
     return v
 
 
@@ -296,7 +304,9 @@ def apply_network(state: dict) -> list[str]:
     want = {ifname(v): v for v in vlans(state)}
     have = _our_links()
     for name in set(have) - set(want):
+        _dhcp_unit(name, False)
         _ip("link", "del", name)
+        util.remove_file(f"{LEASE_DIR}/{name}.json")
         msgs.append(f"VLAN-Schnittstelle {name} entfernt")
     for name, v in want.items():
         parent = parent_of(v)
@@ -313,26 +323,21 @@ def apply_network(state: dict) -> list[str]:
             msgs.append(f"VLAN-Schnittstelle {name} auf {parent} angelegt")
         util.run(["sysctl", "-q", "-w", f"net.ipv6.conf.{name}.disable_ipv6=1"])
         _ip("link", "set", parent, "up")
-        res = util.run(["ip", "-j", "-4", "addr", "show", "dev", name])
-        try:
-            addrs = {f"{a['local']}/{a['prefixlen']}" for i in json.loads(res.stdout or "[]")
-                     for a in i.get("addr_info", [])}
-        except (ValueError, KeyError):
-            addrs = set()
-        if addrs != {v["address"]}:
+        if is_dhcp(v):
+            # Adresse setzt udhcpc; hier nur den aktuellen Stand in die Tabelle uebernehmen
+            _ip("link", "set", name, "up")
+            addr = server_address(v)
+            if addr and addr not in _iface_addrs(name):
+                addr = ""   # z. B. nach einem Neustart: Adresse noch nicht wieder bezogen
+            _set_table(v, addr, effective_gateway(v) if addr else "")
+            _dhcp_unit(v, True)
+            continue
+        _dhcp_unit(v, False)
+        if _iface_addrs(name) != {v["address"]}:
             _ip("addr", "flush", "dev", name)
             _ip("addr", "add", v["address"], "dev", name)
         _ip("link", "set", name, "up")
-        iface = ipaddress.ip_interface(v["address"])
-        t = str(table(v))
-        _ip("route", "flush", "table", t)
-        _ip("route", "add", str(iface.network), "dev", name, "src", str(iface.ip), "table", t)
-        if v.get("gateway"):
-            _ip("route", "add", "default", "via", v["gateway"], "dev", name, "table", t)
-        else:
-            # Ohne Gateway nur das VLAN-Netz: alles andere verwerfen statt ueber die
-            # Hauptroute ins Heimnetz/Internet zu gelangen
-            _ip("route", "add", "unreachable", "default", "table", t)
+        _set_table(v, v["address"], v.get("gateway", ""))
     # Regeln neu setzen
     res = util.run(["ip", "-j", "-4", "rule", "show"])
     try:
@@ -377,6 +382,144 @@ def sync_wg_routes(state: dict, dev: str = "wg0") -> None:
             util.run(["ip", "route", "del", dst, "dev", dev, "proto", "static"])
     for dst in sorted(want):
         _ip("route", "replace", dst, "dev", dev, "proto", "static")
+
+
+# --------------------------------------------------------------------------
+# Adresse per DHCP (udhcpc aus busybox, eine systemd-Instanz je VLAN)
+# --------------------------------------------------------------------------
+
+LEASE_DIR = "/var/lib/vpn-server/vlan-dhcp"
+DHCP_UNIT = "vpn-vlan-dhcp@{}.service"
+
+
+def is_dhcp(v: dict) -> bool:
+    return v.get("mode") == "dhcp"
+
+
+def lease(v: dict) -> dict:
+    """Zuletzt per DHCP erhaltene Adresse ({} wenn keine)."""
+    if not is_dhcp(v):
+        return {}
+    try:
+        return json.loads(util.read_file(f"{LEASE_DIR}/{ifname(v)}.json") or "{}")
+    except ValueError:
+        return {}
+
+
+def server_address(v: dict) -> str:
+    """Adresse des Servers im VLAN mit Praefix ("" solange DHCP noch keine Adresse hat)."""
+    if not is_dhcp(v):
+        return v.get("address", "")
+    info = lease(v)
+    return f"{info['ip']}/{info['prefix']}" if info.get("active") and info.get("ip") else ""
+
+
+def vlan_network(v: dict) -> ipaddress.IPv4Network | None:
+    """Netz des VLANs; bei DHCP das der letzten Adresse (auch fuer Profile)."""
+    addr = v.get("address", "")
+    if is_dhcp(v):
+        info = lease(v)
+        addr = f"{info['ip']}/{info['prefix']}" if info.get("ip") else ""
+    try:
+        return ipaddress.ip_interface(addr).network if addr else None
+    except ValueError:
+        return None
+
+
+def effective_gateway(v: dict) -> str:
+    if not is_dhcp(v):
+        return v.get("gateway", "")
+    info = lease(v)
+    return info.get("router", "") if v.get("dhcp_gateway") and info.get("active") else ""
+
+
+def _set_table(v: dict, addr: str, gateway: str) -> None:
+    """Routing-Tabelle eines VLANs: VLAN-Netz und Gateway, sonst alles verwerfen."""
+    t = str(table(v))
+    _ip("route", "flush", "table", t)
+    if addr:
+        iface = ipaddress.ip_interface(addr)
+        _ip("route", "add", str(iface.network), "dev", ifname(v), "src", str(iface.ip), "table", t)
+    if addr and gateway:
+        _ip("route", "add", "default", "via", gateway, "dev", ifname(v), "table", t)
+    else:
+        # Ohne Gateway (oder ohne Adresse) nur das VLAN-Netz: alles andere verwerfen statt
+        # ueber die Hauptroute ins Heimnetz/Internet zu gelangen
+        _ip("route", "add", "unreachable", "default", "table", t)
+
+
+def _iface_addrs(name: str) -> set[str]:
+    res = util.run(["ip", "-j", "-4", "addr", "show", "dev", name])
+    try:
+        return {f"{a['local']}/{a['prefixlen']}" for i in json.loads(res.stdout or "[]")
+                for a in i.get("addr_info", [])}
+    except (ValueError, KeyError):
+        return set()
+
+
+def _dhcp_unit(v_or_name, start: bool) -> None:
+    name = v_or_name if isinstance(v_or_name, str) else ifname(v_or_name)
+    unit = DHCP_UNIT.format(name)
+    active = util.run(["systemctl", "is-active", "--quiet", unit]).returncode == 0
+    if start and not active:
+        util.run(["systemctl", "--no-block", "start", unit])
+    elif not start and active:
+        # blockierend: udhcpc gibt beim Beenden die Adresse frei (deconfig) - das muss
+        # vor dem Setzen einer festen Adresse erledigt sein
+        util.run(["systemctl", "stop", unit])
+
+
+def dhcp_event(state: dict, event: str, env: dict) -> str:
+    """Vom udhcpc-Hook aufgerufen: Adresse setzen/entfernen und Routing nachziehen."""
+    name = env.get("interface", "")
+    v = next((x for x in vlans(state) if ifname(x) == name), None)
+    if not v or not is_dhcp(v):
+        return f"{name}: kein VLAN mit DHCP"
+    path = f"{LEASE_DIR}/{name}.json"
+    old = lease(v)
+    if event == "deconfig":
+        _ip("addr", "flush", "dev", name)
+        _set_table(v, "", "")
+        if old:
+            util.write_file(path, json.dumps(dict(old, active=False)) + "\n", mode=0o644)
+        return f"{name}: Adresse entfernt"
+    if event in ("leasefail", "nak"):
+        util.write_file(path, json.dumps(dict(old, active=False, status="keine Antwort vom DHCP-Server"
+                                              if event == "leasefail" else "vom DHCP-Server abgelehnt"))
+                        + "\n", mode=0o644)
+        return f"{name}: {event}"
+    if event not in ("bound", "renew"):
+        return f"{name}: {event} ignoriert"
+    try:
+        ip = ipaddress.ip_address(env.get("ip", ""))
+        mask = env.get("mask", "") or str(ipaddress.ip_network(f"0.0.0.0/{env.get('subnet', '')}").prefixlen)
+        iface = ipaddress.ip_interface(f"{ip}/{int(mask)}")
+    except ValueError:
+        return f"{name}: ungültige Adresse vom DHCP-Server"
+    routers = [r for r in env.get("router", "").split() if util.is_ip(r)
+               and ipaddress.ip_address(r) in iface.network]
+    dns = [d for d in env.get("dns", "").split() if util.is_ip(d)]
+    # Netz darf sich nicht mit VPN-Bereichen oder anderen VLANs ueberschneiden
+    from .state import vpn_subnets
+    error = ""
+    for n in [ipaddress.ip_network(x) for x in vpn_subnets(state)] + [vpn_net(o) for o in vlans(state)]:
+        if iface.network.overlaps(n):
+            error = f"Netz {iface.network} überschneidet sich mit dem VPN-Bereich {n}"
+    for o in vlans(state):
+        onet = vlan_network(o) if o is not v else None
+        if onet and onet.overlaps(iface.network):
+            error = f"Netz {iface.network} überschneidet sich mit VLAN {o['id']}"
+    addr = str(iface)
+    if not error and _iface_addrs(name) != {addr}:
+        _ip("addr", "flush", "dev", name)
+        _ip("addr", "add", addr, "dev", name)
+    gw = routers[0] if routers and v.get("dhcp_gateway") else ""
+    _set_table(v, "" if error else addr, gw)
+    info = {"ip": str(ip), "prefix": iface.network.prefixlen, "router": routers[0] if routers else "",
+            "dns": dns, "lease": env.get("lease", ""), "time": int(__import__("time").time()),
+            "active": not error, "status": error}
+    util.write_file(path, json.dumps(info) + "\n", mode=0o644)
+    return f"{name}: {addr}" + (f" über {gw}" if gw else "") + (f" – {error}" if error else "")
 
 
 def link_state(v: dict) -> dict:

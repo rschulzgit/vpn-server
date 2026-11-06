@@ -259,7 +259,7 @@ qemu-system-x86_64 "${ACCEL[@]}" "${FW_BOOT[@]}" -m 2048 -smp 2 -display none -m
   -netdev "user,id=n0,$FWD" -device virtio-net-pci,netdev=n0 "${TRUNK[@]}" \
   -daemonize -pidfile qemu.pid || { echo "QEMU-Start fehlgeschlagen"; exit 1; }
 ip link set tap-trunk up
-for v in 10 20; do
+for v in 10 20 30; do
   ip netns del "vlan$v" 2>/dev/null
   ip netns add "vlan$v"
   ip link add link tap-trunk name "trunk.$v" type vlan id "$v"
@@ -269,6 +269,12 @@ for v in 10 20; do
   ip -n "vlan$v" link set lo up
   ip netns exec "vlan$v" python3 "$HERE/echo_ip.py" 8080 >/dev/null 2>&1 &
 done
+# VLAN 30 hat einen DHCP-Server: dort bezieht der VPN-Server seine Adresse automatisch
+ip netns exec vlan30 dnsmasq --port=0 --interface=trunk.30 --bind-interfaces --user=root \
+  --dhcp-range=192.168.30.50,192.168.30.60,255.255.255.0,1h --dhcp-option=3,192.168.30.1 \
+  --dhcp-option=6,192.168.30.1 --dhcp-leasefile="$WORK/dnsmasq-vlan30.leases" \
+  --pid-file="$WORK/dnsmasq-vlan30.pid" --log-dhcp --log-facility="$WORK/dnsmasq-vlan30.log" \
+  || echo "WARNUNG: dnsmasq für VLAN 30 nicht gestartet"
 
 # "Heimnetz"-Dienst: fuer den Gast ist der QEMU-Host 10.0.2.2
 python3 -m http.server 8099 --bind 127.0.0.1 --directory "$WORK" >/dev/null 2>&1 &
@@ -277,7 +283,7 @@ HTTP_PID=$!
 python3 "$HERE/fake_github.py" --port 8097 --repo-dir "$HERE/../.." --version 9.9.9 \
   --token e2e_update_token_0123456789 > "$WORK/fake-github.log" 2>&1 &
 GH_PID=$!
-trap 'kill $HTTP_PID $GH_PID 2>/dev/null; kill $(cat "$WORK/qemu.pid" 2>/dev/null) 2>/dev/null' EXIT
+trap 'kill $HTTP_PID $GH_PID 2>/dev/null; kill $(cat "$WORK/qemu.pid" "$WORK/dnsmasq-vlan30.pid" 2>/dev/null) 2>/dev/null' EXIT
 
 echo "Warte auf die Weboberflaeche ..."
 for _ in $(seq 1 180); do

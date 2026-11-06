@@ -3,10 +3,13 @@
   "use strict";
   var C = window.VPNCharts, h = C.h;
   var table = document.getElementById("live-sessions");
-  var withVlans = !!table.getAttribute("data-vlans");
+  var withVlans = !!(table && table.getAttribute("data-vlans"));
+  var clients = table ? (table.getAttribute("data-clients") || "").split(" ").filter(Boolean) : [];
+  var clientUrl = table ? table.getAttribute("data-client-url") || "" : "";
   var csrf = (document.querySelector('meta[name="csrf-token"]') || {}).content || "";
 
   function sessions(d) {
+    if (!table) return;
     var tb = table.querySelector("tbody");
     C.clear(tb);
     var list = d.sessions || [];
@@ -18,7 +21,13 @@
     }
     list.forEach(function (s) {
       var tr = h("tr", null, null, tb);
-      var user = h("td", null, s.user || "", tr);
+      var user = h("td", null, null, tr);
+      if (clients.indexOf(s.user) >= 0 && clientUrl) {
+        var a = h("a", null, s.user, user);
+        a.href = clientUrl.replace("__NAME__", encodeURIComponent(s.user));
+      } else {
+        user.textContent = s.user || "";
+      }
       if (s.radius) { user.appendChild(document.createTextNode(" ")); h("span", "badge", "RADIUS", user); }
       h("td", null, s.proto || "", tr);
       h("code", null, s.vip || "", h("td", null, null, tr));
@@ -68,6 +77,8 @@
       })
       .catch(function () { /* ignorieren */ });
   }
-  events();
-  setInterval(events, 30000);
+  if (document.getElementById("events")) {
+    events();
+    setInterval(events, 30000);
+  }
 })();

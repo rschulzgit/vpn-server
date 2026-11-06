@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf %}
+{% block title %}Client hinzufügen{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>Client hinzufügen</h1><p class="page-sub">Nach dem Anlegen stehen Profile, QR-Code und Anleitungen für das Gerät bereit</p></div></div>
+<div class="panel">
+  <form method="post" action="{{ url_for('clients') }}">
+    {{ csrf() }}
+    <div class="grid-2">
+      <div>
+        <label for="name">Name (Gerät)</label>
+        <input id="name" name="name" type="text" required autofocus pattern="[a-zA-Z0-9][a-zA-Z0-9\-]{0,30}" placeholder="z. B. max-handy" autocomplete="off">
+        <p class="hint">Kleinbuchstaben, Ziffern und Bindestrich. Dient auch als Benutzername.</p>
+      </div>
+      <div>
+        <label for="note">Notiz (optional)</label>
+        <input id="note" name="note" type="text" maxlength="100" placeholder="z. B. iPhone von Max">
+      </div>
+      <div>
+        <label for="password">Passwort (optional)</label>
+        <input id="password" name="password" type="text" autocomplete="off" placeholder="leer = sicheres Passwort erzeugen">
+        <p class="hint">Für Protokolle mit Benutzername/Passwort (IKEv2-EAP, L2TP, SSTP, OpenConnect, Cisco IPsec).</p>
+      </div>
+      <div>
+        <label for="tunnel">Welcher Verkehr läuft über das VPN? (WireGuard/OpenVPN)</label>
+        <select id="tunnel" name="tunnel">
+          <option value="full" selected>Gesamter Internetverkehr (empfohlen unterwegs)</option>
+          <option value="split">Nur Zugriff aufs Heimnetz (Split-Tunnel)</option>
+        </select>
+      </div>
+      {% if vlans %}
+      <div>
+        <label for="vlan">VLAN</label>
+        <select id="vlan" name="vlan">
+          <option value="">Standardnetz</option>
+          {% for v in vlans %}<option value="{{ v.id }}">VLAN {{ v.id }} – {{ v.name }}</option>{% endfor %}
+        </select>
+      </div>
+      {% endif %}
+    </div>
+    <div class="actions"><button class="btn" type="submit">Client anlegen</button>
+      <a class="btn secondary" href="{{ url_for('clients') }}">Abbrechen</a></div>
+  </form>
+</div>
+{% endblock %}

@@ -3,7 +3,7 @@
 {% block title %}Profile für RADIUS-Benutzer{% endblock %}
 {% block content %}
 <div class="title-row"><h1>Profile für RADIUS-Benutzer</h1>
-  <span class="right"><a href="{{ url_for('settings') }}#radius">← RADIUS-Einstellungen</a></span></div>
+  <span class="right"><a href="{{ url_for('settings', page='radius') }}">← RADIUS-Einstellungen</a></span></div>
 <p class="muted">Diese Profile enthalten keine Zugangsdaten: Jeder Benutzer meldet sich mit seinem Benutzernamen und Passwort des RADIUS-Servers an. Das VLAN weist der RADIUS-Server zu. Die Dateien können an alle Benutzer verteilt werden.</p>
 {% if not state.radius.enabled %}<div class="warnbox">Es ist noch kein externer RADIUS-Server aktiviert. Lokale Clients können diese Profile ebenfalls verwenden (mit Client-Name und Passwort).</div>{% endif %}
 
