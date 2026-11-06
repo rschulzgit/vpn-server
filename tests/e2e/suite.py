@@ -1400,6 +1400,33 @@ def write_radius_swanctl() -> None:
     id = radvlan10
     secret = "Radius-Pass10"
   }""")
+    # Lokaler Client mit VLAN und Zertifikat (eigene Server-Verbindung je Client)
+    os.makedirs("/etc/swanctl/pkcs12", exist_ok=True)
+    with open("/etc/swanctl/pkcs12/vlan20dev.p12", "wb") as fh:
+        fh.write(W.download(VLAN_DEV, "p12"))
+    vcred = json.loads(W.download(VLAN_DEV, "json"))
+    conns.append(f"""  vlan-cert20 {{
+    version = 2
+    remote_addrs = {VPN_HOST}
+    vips = 0.0.0.0
+    local {{
+      auth = pubkey
+      id = {VLAN_DEV}
+    }}
+    remote {{
+      auth = pubkey
+      id = {VPN_HOST}
+    }}
+    children {{
+      vlan-cert20 {{
+        remote_ts = 0.0.0.0/0
+      }}
+    }}
+  }}""")
+    secrets.append(f"""  pkcs12-vlan20dev {{
+    file = vlan20dev.p12
+    secret = "{vcred['ikev2']['p12_password']}"
+  }}""")
     with open("/etc/swanctl/conf.d/e2e-radius.conf", "w") as fh:
         fh.write("connections {\n" + "\n".join(conns) + "\n}\nsecrets {\n" + "\n".join(secrets) + "\n}\n")
     del c
@@ -1506,6 +1533,22 @@ def t_vlan_sstp_local():
     route_via(ppp_iface())
     errors = vlan_checks(20, 10)
     check(not errors, ", ".join(errors))
+    return f"({vip})"
+
+
+@test("RADIUS / VLAN", "Lokaler Client in VLAN 20: IKEv2 mit Zertifikat (eigene Verbindung je Client)")
+def t_vlan_ikev2_cert():
+    write_radius_swanctl()
+    r = nsx("swanctl --load-all --noprompt")
+    check("failed" not in r.stdout + r.stderr, f"swanctl: {r.stdout[-400:]}")
+    r = nsx("timeout 45 swanctl --initiate --child vlan-cert20", timeout=60)
+    check(r.returncode == 0, "Verbindung fehlgeschlagen: " + (r.stdout + r.stderr)[-500:])
+    vip = swan_vip("vlan-cert20")
+    check(in_net(vip, "10.67.2.32/27"), f"Adresse nicht aus VLAN 20: {vip}")
+    errors = vlan_checks(20, 10)
+    check(not errors, ", ".join(errors))
+    check(vlan_session(VLAN_DEV, 20), "VLAN nicht in der Statusanzeige")
+    nsx("swanctl --terminate --ike vlan-cert20 --force")
     return f"({vip})"
 
 
@@ -1670,7 +1713,7 @@ def t_app_update():
     check(st.get("installed", {}).get("version") == "9.9.9", f"Installiert: {st.get('installed')}")
     check(wait_web(120), "Weboberfläche nach dem Update nicht erreichbar")
     W.login(ADMIN_PW)
-    check("Version 9.9.9" in W.req("/system")[2].decode(errors="replace"), "Neue Version nicht aktiv")
+    check(installed_version() == "9.9.9", f"Neue Version nicht aktiv ({installed_version()})")
 
     def all_active():
         return all(u["active"] == "active" for u in W.status()["units"] if u["wanted"])
@@ -1681,6 +1724,12 @@ def t_app_update():
     return "(1.x -> 9.9.9)"
 
 
+def installed_version() -> str:
+    page = W.req("/system")[2].decode(errors="replace")
+    m = re.search(r"<dt>Installiert</dt><dd>Version ([^\s<]+)", page)
+    return m.group(1) if m else ""
+
+
 @test("Selbst-Update", "Vorherige Version wiederherstellen")
 def t_app_rollback():
     W.req("/system", {"action": "app-update-rollback"})
@@ -1688,8 +1737,9 @@ def t_app_rollback():
     check(st.get("state") == "done", f"Wiederherstellung: {st.get('message')} | {st.get('log', '')[-600:]}")
     check(wait_web(120), "Weboberfläche nach der Wiederherstellung nicht erreichbar")
     W.login(ADMIN_PW)
+    check(installed_version() not in ("", "9.9.9"), f"Noch die neue Version aktiv ({installed_version()})")
     page = W.req("/system")[2].decode(errors="replace")
-    check("Version 9.9.9" not in page, "Noch die neue Version aktiv")
+    check('<span class="badge warn">neu</span>' in page, "9.9.9 wird nach dem Zurücksetzen nicht wieder angeboten")
     r = remote("vpnctl update status")
     check("9.9.9" not in r.stdout.split("\n")[0], f"vpnctl update status: {r.stdout}")
     r = wg_up(PROFILES[("e2e", "wireguard")].decode())

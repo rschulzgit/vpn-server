@@ -82,7 +82,21 @@ def settings(state: dict) -> dict:
     if not u.get("branch"):
         ref = inst.get("ref", "")
         u["branch"] = ref if ref and not re.match(r"^v\d", ref) else "main"
+    # "neuer" immer gegen den aktuell installierten Stand (nach Update oder Zuruecksetzen)
+    if u["available"]:
+        u["available"]["newer"] = is_newer(u["available"], inst)
     return u
+
+
+def is_newer(avail: dict, inst: dict) -> bool:
+    """Ist der verfuegbare Stand neuer als der installierte?"""
+    version, sha = avail.get("version", ""), avail.get("sha", "")
+    if not version or not sha:
+        return False
+    if avail.get("channel", "release") == "release":
+        return _vtuple(version) > _vtuple(inst["version"]) or (
+            _vtuple(version) == _vtuple(inst["version"]) and inst.get("sha") not in ("", sha))
+    return sha != inst.get("sha")
 
 
 def validate_settings(repo: str, channel: str, branch: str, api: str = DEFAULT_API) -> None:
@@ -166,14 +180,9 @@ def check(state: dict) -> dict:
     if not m:
         raise UpdateError("Versionsnummer im Repository nicht gefunden.")
     version = m.group(1)
-    inst = installed()
-    if u["channel"] == "release":
-        newer = _vtuple(version) > _vtuple(inst["version"]) or (
-            _vtuple(version) == _vtuple(inst["version"]) and inst.get("sha") not in ("", sha))
-    else:
-        newer = sha != inst.get("sha")
     avail = {"version": version, "sha": sha, "ref": ref, "notes": notes[:3000], "date": date,
-             "newer": newer, "channel": u["channel"]}
+             "channel": u["channel"]}
+    avail["newer"] = is_newer(avail, installed())
     u["available"] = avail
     u["last_check"] = dt.datetime.now().isoformat(timespec="seconds")
     return avail
@@ -373,7 +382,7 @@ def run_install() -> int:
     with st.locked():
         s = st.load()
         settings(s)
-        s["update"]["available"] = dict(avail, newer=False)
+        s["update"]["available"] = dict(avail, newer=False)  # wird bei Anzeige neu bewertet
         st.save(s)
     shutil.rmtree(WORK_DIR + "/new", ignore_errors=True)
     _set_status("done", f"Version {avail['version']} ({avail['sha'][:7]}) wurde installiert.",

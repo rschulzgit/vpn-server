@@ -75,12 +75,21 @@ def ensure_unit(unit: str, want: bool, restart: bool = False, reload: bool = Fal
         systemctl("disable", unit)
 
 
-def _swanctl_load() -> None:
+def _swanctl_load() -> str:
+    """Laedt alle swanctl-Verbindungen. Liefert "" oder eine kurze Fehlerbeschreibung."""
+    out = ""
     for _ in range(20):
-        if util.run(["swanctl", "--load-all", "--clear"]).returncode == 0:
-            return
-        time.sleep(0.5)
-    log.error("swanctl --load-all fehlgeschlagen")
+        res = util.run(["swanctl", "--load-all", "--clear", "--noprompt"])
+        if res.returncode == 0:
+            return ""
+        out = (res.stdout or "") + (res.stderr or "")
+        if "connecting to" not in out:  # charon laeuft, die Konfiguration ist fehlerhaft
+            break
+        time.sleep(0.5)  # charon startet noch
+    lines = [ln.strip() for ln in out.splitlines() if "fail" in ln.lower() or "error" in ln.lower()]
+    msg = "; ".join(lines[-3:]) or "swanctl --load-all fehlgeschlagen"
+    log.error("swanctl: %s", msg)
+    return msg
 
 
 # --------------------------------------------------------------------------
@@ -149,6 +158,7 @@ def apply(state: dict, restart_webui: bool = True) -> list[str]:
             if res.returncode != 0:
                 ensure_unit(unit, True, restart=True)
         util.write_file(hash_file, iface_hash, mode=0o600)
+        vlan.sync_wg_routes(state)
     else:
         ensure_unit(unit, False)
 
@@ -167,7 +177,9 @@ def apply(state: dict, restart_webui: bool = True) -> list[str]:
     if st.any_ipsec(state):
         ensure_unit("strongswan.service", True, restart=render.STRONGSWAN_CONF in changed)
         if not NO_BLOCK:  # sonst laedt strongswan.service die Konfiguration selbst
-            _swanctl_load()
+            err = _swanctl_load()
+            if err:
+                messages.append(f"FEHLER: IPsec-Konfiguration nicht vollständig geladen ({err})")
     else:
         ensure_unit("strongswan.service", False)
 
