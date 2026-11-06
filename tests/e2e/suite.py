@@ -919,7 +919,17 @@ def route_via(iface: str, ns: str = NS) -> None:
         nsx(f"ip route replace {net} dev {iface}", ns)
 
 
+L2TP_LAST_END = [0.0]
+
+
 def t_l2tp():
+    # Nach dem Trennen haelt der Server den Tunnel noch einen vollen
+    # Wiederholungszyklus vor (RFC 2661, ca. 31 s). Ein neuer Verbindungsaufbau
+    # vom selben Absenderport (1701) wird in dieser Zeit verworfen; echte
+    # Clients verbinden sich danach normal neu.
+    wait = L2TP_LAST_END[0] + 35 - time.time()
+    if wait > 0:
+        time.sleep(wait)
     r = nsx("timeout 45 swanctl --initiate --child l2tp", timeout=60)
     check(r.returncode == 0, "IPsec-Transport-SA fehlgeschlagen: " + (r.stdout + r.stderr)[-400:])
     write("xl2tpd.conf", f"""[global]
@@ -960,6 +970,8 @@ connect-delay 2000
     sh(f"timeout 5 bash -c \"echo 'd vpn' > {WORK}/l2tp-control\"")
     time.sleep(4)
     nsx("swanctl --terminate --ike l2tp")
+    sh("pkill -f 'xl2tpd -D -c' || true")
+    L2TP_LAST_END[0] = time.time()
 
 
 # =============================================================================
