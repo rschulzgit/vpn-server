@@ -36,6 +36,25 @@
     document.body.removeChild(ta);
   }
 
+  // Seitenleiste: aufgeklappte Gruppen merken (die Gruppe der aktuellen Seite ist immer offen)
+  (function () {
+    var KEY = "vpn-nav-open";
+    var saved = [];
+    try { saved = JSON.parse(localStorage.getItem(KEY) || "[]") || []; } catch (e) { saved = []; }
+    var ready = false;   // nur Klicks des Benutzers merken, nicht das Oeffnen beim Laden
+    setTimeout(function () { ready = true; }, 300);
+    document.querySelectorAll(".nav-group").forEach(function (g) {
+      var name = g.getAttribute("data-group");
+      if (!g.open && saved.indexOf(name) >= 0) g.open = true;
+      g.addEventListener("toggle", function () {
+        if (!ready) return;
+        saved = saved.filter(function (x) { return x !== name; });
+        if (g.open) saved.push(name);
+        try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch (e) { /* ignorieren */ }
+      });
+    });
+  })();
+
   // Tabs (Hauptreiter und Unterreiter)
   function activate(group, name) {
     document.querySelectorAll('[data-tabgroup="' + group + '"] > button').forEach(function (b) {

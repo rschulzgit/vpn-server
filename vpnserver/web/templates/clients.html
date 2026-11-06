@@ -1,10 +1,13 @@
 {% extends "base.html" %}
-{% from "_macros.html" import csrf %}
+{% from "_macros.html" import icon %}
 {% block title %}Clients{% endblock %}
 {% block content %}
-<h1>Clients</h1>
+<div class="page-head">
+  <div><h1>Clients</h1><p class="page-sub">Ein Client pro Gerät – mit Zugangsdaten für alle aktivierten Protokolle</p></div>
+  <a class="btn right" href="{{ url_for('client_new') }}">{{ icon('plus') }}Client hinzufügen</a>
+</div>
 <div class="panel">
-  <p class="muted">Legen Sie für jedes Gerät (Handy, Laptop, …) einen eigenen Client an. Jeder Client erhält automatisch Zugangsdaten für alle aktivierten Protokolle.{% if state.radius.enabled %} Benutzer des RADIUS-Servers brauchen keinen Client – siehe <a href="{{ url_for('radius_profiles') }}">Profile für RADIUS-Benutzer</a>.{% endif %}</p>
+  <p class="muted">Legen Sie für jedes Gerät (Handy, Laptop, …) einen eigenen Client an.{% if state.radius.enabled %} Benutzer des RADIUS-Servers brauchen keinen Client – siehe <a href="{{ url_for('radius_profiles') }}">Profile für RADIUS-Benutzer</a>.{% endif %}</p>
   <div class="table-wrap"><table>
     <thead><tr><th>Name</th><th>Status</th><th>Notiz</th><th>WireGuard-IP</th>{% if vlans %}<th>VLAN</th>{% endif %}<th>Tunnel</th><th></th></tr></thead>
     <tbody>
@@ -23,48 +26,9 @@
         <td><a class="btn small secondary" href="{{ url_for('client', name=c.name) }}">Profile &amp; Anleitung</a></td>
       </tr>
     {% else %}
-      <tr><td colspan="7" class="muted">Noch keine Clients angelegt.</td></tr>
+      <tr><td colspan="7" class="muted">Noch keine Clients angelegt – <a href="{{ url_for('client_new') }}">jetzt den ersten hinzufügen</a>.</td></tr>
     {% endfor %}
     </tbody>
   </table></div>
-</div>
-<div class="panel" id="neu">
-  <h2>Neuer Client</h2>
-  <form method="post">
-    {{ csrf() }}
-    <div class="grid-2">
-      <div>
-        <label for="name">Name (Gerät)</label>
-        <input id="name" name="name" type="text" required pattern="[a-zA-Z0-9][a-zA-Z0-9\-]{0,30}" placeholder="z. B. max-handy" autocomplete="off">
-        <p class="hint">Kleinbuchstaben, Ziffern und Bindestrich. Dient auch als Benutzername.</p>
-      </div>
-      <div>
-        <label for="note">Notiz (optional)</label>
-        <input id="note" name="note" type="text" maxlength="100" placeholder="z. B. iPhone von Max">
-      </div>
-      <div>
-        <label for="password">Passwort (optional)</label>
-        <input id="password" name="password" type="text" autocomplete="off" placeholder="leer = sicheres Passwort erzeugen">
-        <p class="hint">Für Protokolle mit Benutzername/Passwort (IKEv2-EAP, L2TP, SSTP, OpenConnect, Cisco IPsec).</p>
-      </div>
-      <div>
-        <label for="tunnel">Welcher Verkehr läuft über das VPN? (WireGuard/OpenVPN)</label>
-        <select id="tunnel" name="tunnel">
-          <option value="full" selected>Gesamter Internetverkehr (empfohlen unterwegs)</option>
-          <option value="split">Nur Zugriff aufs Heimnetz (Split-Tunnel)</option>
-        </select>
-      </div>
-      {% if vlans %}
-      <div>
-        <label for="vlan">VLAN</label>
-        <select id="vlan" name="vlan">
-          <option value="">Standardnetz</option>
-          {% for v in vlans %}<option value="{{ v.id }}">VLAN {{ v.id }} – {{ v.name }}</option>{% endfor %}
-        </select>
-      </div>
-      {% endif %}
-    </div>
-    <div class="actions"><button class="btn" type="submit">Client anlegen</button></div>
-  </form>
 </div>
 {% endblock %}

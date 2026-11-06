@@ -130,7 +130,7 @@ anfragen (oft kostenlos), oder den Server auf einem VPS installieren.
 
 ## RADIUS-Anmeldung und VLANs (wie beim WLAN-Controller)
 
-*Einstellungen → RADIUS-Anmeldung / VLANs*
+*Einstellungen → RADIUS / VLANs*
 
 **RADIUS:** Benutzer melden sich mit den Zugangsdaten eines vorhandenen RADIUS-Servers an
 (Windows NPS mit Active Directory, FreeRADIUS, UniFi, Synology …). Das gilt für alle Verfahren
@@ -169,7 +169,7 @@ trennt.
 
 ## Software-Update
 
-*System → Software-Update* aktualisiert die Anwendung aus diesem Repository – standardmäßig auf
+*System → Updates* aktualisiert die Anwendung aus diesem Repository – standardmäßig auf
 das **neueste Release** (geprüfte Stände, kein Token nötig). Alternativ kann ein Branch gewählt
 werden; für private Forks bzw. Repositorys lässt sich optional ein GitHub-Token (nur Lesezugriff)
 hinterlegen. Ablauf: Download → Prüfung → Sicherung des bisherigen Stands → Installation (inkl.

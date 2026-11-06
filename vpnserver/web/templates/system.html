@@ -1,8 +1,9 @@
 {% extends "base.html" %}
 {% from "_macros.html" import csrf %}
-{% block title %}System{% endblock %}
+{% block title %}{{ 'System' if page == '' else page_title }}{% endblock %}
 {% block content %}
-<div class="page-head"><div><h1>System</h1><p class="page-sub">Software, Netzwerk, Passwort und Sicherung</p></div></div>
+<div class="page-head"><div><h1>{{ 'System' if page == '' else page_title }}</h1><p class="page-sub">{{ page_sub }}</p></div></div>
+{% if page == '' %}
 <div class="grid">
   <div class="panel">
     <h2>Information</h2>
@@ -32,9 +33,8 @@
     </form>
   </div>
 </div>
-
+{% elif page == 'netzwerk' %}
 <div class="panel">
-  <h2>Netzwerk</h2>
   {% if net.manager == 'ifupdown' %}
   <p>Der Server sollte immer dieselbe LAN-Adresse haben, damit die Portfreigaben funktionieren. Am einfachsten: im Router eine <strong>DHCP-Reservierung</strong> einrichten. Alternativ hier eine feste Adresse vergeben.</p>
   <form method="post" data-confirm="Netzwerkeinstellungen übernehmen? Bei falschen Werten ist der Server nur noch über die Konsole erreichbar.">{{ csrf() }}
@@ -53,7 +53,7 @@
   <p>Bitte richten Sie im Router eine <strong>DHCP-Reservierung</strong> für diesen Server ein (aktuell <code>{{ net.ip }}</code>).</p>
   {% endif %}
 </div>
-
+{% elif page == 'updates' %}
 <div class="panel" id="software">
   <h2>Software-Update</h2>
   <div class="grid-2">
@@ -107,26 +107,49 @@
   </div>
 </div>
 
-<div class="grid">
-  <div class="panel">
-    <h2>Betriebssystem-Updates</h2>
-    <p>Sicherheitsupdates für Debian werden automatisch täglich installiert. Hier können Sie alle verfügbaren Updates sofort einspielen.</p>
-    <form method="post">{{ csrf() }}<input type="hidden" name="action" value="update">
-      <button class="btn" type="submit" {{ 'disabled' if update_running }}>{{ 'Update läuft …' if update_running else 'Jetzt aktualisieren' }}</button></form>
-    {% if update_log %}<details {{ 'open' if update_running }}><summary>Protokoll</summary><pre>{{ update_log }}</pre></details>{% endif %}
-  </div>
-  <div class="panel">
-    <h2>Sicherung</h2>
-    <p>Enthält alle Einstellungen, Clients, Schlüssel und Zertifikate. <strong>Vertraulich aufbewahren!</strong> Nach einer Neuinstallation können so alle Clients ohne neue Profile weiterverwendet werden.</p>
-    <a class="btn" href="{{ url_for('backup') }}">Sicherung herunterladen</a>
-    <form method="post" enctype="multipart/form-data" data-confirm="Sicherung wiederherstellen? Die aktuelle Konfiguration wird ersetzt.">{{ csrf() }}
-      <input type="hidden" name="action" value="restore">
-      <label for="backup">Wiederherstellen</label>
-      <input id="backup" name="backup" type="file" accept=".tar.gz,.tgz,application/gzip" required>
-      <div class="actions"><button class="btn secondary" type="submit">Wiederherstellen</button></div>
-    </form>
-  </div>
+<div class="panel">
+  <h2>Betriebssystem-Updates</h2>
+  <p>Sicherheitsupdates für Debian werden automatisch täglich installiert. Hier können Sie alle verfügbaren Updates sofort einspielen.</p>
+  <form method="post">{{ csrf() }}<input type="hidden" name="action" value="update">
+    <button class="btn" type="submit" {{ 'disabled' if update_running }}>{{ 'Update läuft …' if update_running else 'Jetzt aktualisieren' }}</button></form>
+  {% if update_log %}<details {{ 'open' if update_running }}><summary>Protokoll</summary><pre>{{ update_log }}</pre></details>{% endif %}
 </div>
+{% elif page == 'sicherung' %}
+<div class="panel">
+  <p>Enthält alle Einstellungen, Clients, Schlüssel und Zertifikate. <strong>Vertraulich aufbewahren!</strong> Nach einer Neuinstallation können so alle Clients ohne neue Profile weiterverwendet werden.</p>
+  <a class="btn" href="{{ url_for('backup') }}">Sicherung herunterladen</a>
+  <form method="post" enctype="multipart/form-data" data-confirm="Sicherung wiederherstellen? Die aktuelle Konfiguration wird ersetzt.">{{ csrf() }}
+    <input type="hidden" name="action" value="restore">
+    <label for="backup">Wiederherstellen</label>
+    <input id="backup" name="backup" type="file" accept=".tar.gz,.tgz,application/gzip" required>
+    <div class="actions"><button class="btn secondary" type="submit">Wiederherstellen</button></div>
+  </form>
+</div>
+{% elif page == 'dienste' %}
+<div class="card">
+  <div class="table-wrap"><table>
+    <thead><tr><th>Dienst</th><th>systemd-Unit</th><th>Soll</th><th>Ist</th><th></th></tr></thead>
+    <tbody>
+    {% for u in units %}
+      <tr>
+        <td>{{ u.label }}</td><td><code>{{ u.unit }}</code></td>
+        <td>{{ 'aktiv' if u.wanted else 'aus' }}</td>
+        <td><span class="badge {{ 'ok' if u.ok and u.active == 'active' else ('err' if not u.ok else '') }}">{{ u.active }}</span></td>
+        <td><a class="btn small secondary" href="{{ url_for('system_page', page='dienste', log=u.unit) }}#log">Protokoll</a></td>
+      </tr>
+    {% endfor %}
+      <tr><td>Weboberfläche</td><td><code>vpn-webui.service</code></td><td>aktiv</td><td><span class="badge ok">active</span></td>
+        <td><a class="btn small secondary" href="{{ url_for('system_page', page='dienste', log='vpn-webui.service') }}#log">Protokoll</a></td></tr>
+    </tbody>
+  </table></div>
+</div>
+{% if logtext is not none %}
+<div class="card" id="log">
+  <h2>Protokoll: <code>{{ log_unit }}</code></h2>
+  <pre>{{ logtext }}</pre>
+</div>
+{% endif %}
+{% endif %}
 {% endblock %}
 {% block scripts %}
 <script src="{{ url_for('static', filename='system.js') }}?v={{ version }}"></script>

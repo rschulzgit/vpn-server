@@ -417,7 +417,11 @@ def t_clients():
 
 @test("Weboberfläche", "Alle Seiten erreichbar, Profile herunterladbar")
 def t_pages_downloads():
-    for page in ("/", "/clients", "/status", "/settings", "/system", "/clients/e2e", "/status?log=strongswan.service"):
+    for page in ("/", "/clients", "/clients/neu", "/status", "/status/protokoll", "/settings/allgemein",
+                 "/settings/protokolle", "/settings/radius", "/settings/vlans", "/settings/ipsec",
+                 "/settings/dyndns", "/settings/zertifikate", "/system", "/system/netzwerk", "/system/updates",
+                 "/system/sicherung", "/system/dienste", "/clients/e2e", "/system/dienste?log=strongswan.service",
+                 "/status?log=strongswan.service"):
         code, _u, _r = W.req(page)
         check(code == 200, f"{page} -> {code}")
     kinds = ["wireguard", "wireguard-qr", "openvpn", "ca", "p12", "json", "credentials", "zip",
@@ -1451,7 +1455,7 @@ def t_vlan_setup():
     r = remote("ip -o link | grep -i '52:54:00:00:99:01' | awk -F': ' '{print $2}'")
     nic = r.stdout.strip().split("@")[0]
     check(nic, f"Trunk-Netzwerkkarte nicht gefunden: {r.stdout} {r.stderr[-200:]}")
-    _c, _u, raw = W.req("/settings")
+    _c, _u, raw = W.req("/settings/vlans")
     check(f'value="{nic}"' in raw.decode(errors="replace"), f"{nic} nicht in der Schnittstellenauswahl")
     W.settings("vlan-save", {"id": "10", "name": "Gäste", "parent": nic, "address": "192.168.10.2/24",
                              "gateway": "192.168.10.1", "dns": "192.168.10.1"})
@@ -1462,7 +1466,7 @@ def t_vlan_setup():
           "VLANs nicht gespeichert")
 
     def links_up():
-        page = W.req("/settings")[2].decode(errors="replace")
+        page = W.req("/settings/vlans")[2].decode(errors="replace")
         return page.count(">verbunden<") >= 2
     check(wait_until(links_up, 30, 3), "VLAN-Schnittstellen nicht verbunden")
     out = remote("ip -d link show vlan10; ip rule; ip route show table 1001; ip route show table 1002").stdout
@@ -1725,7 +1729,7 @@ def t_app_update():
 
 
 def installed_version() -> str:
-    page = W.req("/system")[2].decode(errors="replace")
+    page = W.req("/system/updates")[2].decode(errors="replace")
     m = re.search(r"<dt>Installiert</dt><dd>Version ([^\s<]+)", page)
     return m.group(1) if m else ""
 
@@ -1738,7 +1742,7 @@ def t_app_rollback():
     check(wait_web(120), "Weboberfläche nach der Wiederherstellung nicht erreichbar")
     W.login(ADMIN_PW)
     check(installed_version() not in ("", "9.9.9"), f"Noch die neue Version aktiv ({installed_version()})")
-    page = W.req("/system")[2].decode(errors="replace")
+    page = W.req("/system/updates")[2].decode(errors="replace")
     check('<span class="badge warn">neu</span>' in page, "9.9.9 wird nach dem Zurücksetzen nicht wieder angeboten")
     r = remote("vpnctl update status")
     check("9.9.9" not in r.stdout.split("\n")[0], f"vpnctl update status: {r.stdout}")

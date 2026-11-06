@@ -50,8 +50,14 @@ def test_bad_login(client):
 
 def test_full_flow(client):
     tok = login_and_setup(client)
-    for page in ("/", "/clients", "/status", "/settings", "/system"):
+    for page in ("/", "/clients", "/clients/neu", "/status", "/status/protokoll", "/statistik", "/werkzeuge", "/settings/allgemein", "/settings/protokolle", "/settings/radius", "/settings/vlans", "/settings/ipsec", "/settings/dyndns", "/settings/zertifikate", "/system", "/system/netzwerk", "/system/updates", "/system/sicherung", "/system/dienste"):
         assert client.get(page).status_code == 200, page
+    # Alte Adressen leiten weiter
+    assert client.get("/settings").headers["Location"].endswith("/settings/allgemein")
+    assert client.get("/status?log=ocserv.service").headers["Location"].endswith(
+        "/system/dienste?log=ocserv.service")
+    assert client.get("/settings/gibtsnicht").status_code == 404
+    assert client.get("/system/gibtsnicht").status_code == 404
     r = client.post("/clients", data={"name": "test-handy", "tunnel": "full", "csrf_token": tok})
     assert r.headers["Location"].endswith("/clients/test-handy")
     page = client.get("/clients/test-handy")
@@ -77,7 +83,7 @@ def test_port_conflict(client):
     client.post("/settings", data={"section": "protocols", "csrf_token": tok, "sstp_enabled": "1",
                                    "sstp_port": "4443", "openconnect_enabled": "1",
                                    "openconnect_port": "4443"})
-    assert "berschneiden" in client.get("/settings").text
+    assert "berschneiden" in client.get("/settings/protokolle").text
 
 
 def test_radius_vlan_flow(client):
@@ -86,7 +92,7 @@ def test_radius_vlan_flow(client):
     client.post("/settings", data={"section": "vlan-save", "csrf_token": tok, "id": "10",
                                    "name": "Gäste", "address": "192.168.10.2/24",
                                    "gateway": "192.168.11.1"})
-    assert "Gateway muss im VLAN-Netz" in client.get("/settings").text
+    assert "Gateway muss im VLAN-Netz" in client.get("/settings/vlans").text
     client.post("/settings", data={"section": "vlan-save", "csrf_token": tok, "id": "10",
                                    "name": "Gäste", "address": "192.168.10.2/24",
                                    "gateway": "192.168.10.1", "dns": "192.168.10.1"})
@@ -95,7 +101,7 @@ def test_radius_vlan_flow(client):
     # Doppelte ID
     client.post("/settings", data={"section": "vlan-save", "csrf_token": tok, "id": "10",
                                    "address": "192.168.12.2/24"})
-    assert "bereits eingerichtet" in client.get("/settings").text
+    assert "bereits eingerichtet" in client.get("/settings/vlans").text
     # Client im VLAN anlegen
     client.post("/clients", data={"name": "gast", "tunnel": "full", "vlan": "10", "csrf_token": tok})
     s = st.load()
@@ -118,7 +124,7 @@ def test_radius_vlan_flow(client):
     client.post("/settings", data={"section": "radius", "csrf_token": tok, "enabled": "1",
                                    "host1": "192.168.1.10", "auth_port1": "1812",
                                    "acct_port1": "1813", "secret1": "geheim'", "local_users": "1"})
-    assert "Anführungszeichen" in client.get("/settings").text
+    assert "Anführungszeichen" in client.get("/settings/radius").text
     client.post("/settings", data={"section": "radius", "csrf_token": tok, "enabled": "1",
                                    "host1": "192.168.1.10", "auth_port1": "1812",
                                    "acct_port1": "1813", "secret1": "Geheim123!", "local_users": "1",
@@ -129,8 +135,10 @@ def test_radius_vlan_flow(client):
     client.post("/settings", data={"section": "radius", "csrf_token": tok, "enabled": "1",
                                    "host1": "192.168.1.10", "local_users": "1"})
     assert st.load()["radius"]["servers"][0]["secret"] == "Geheim123!"
-    for page in ("/settings", "/settings?vlan=10", "/radius-profile", "/status"):
+    for page in ("/settings/radius", "/settings/vlans", "/settings/vlans?vlan=10", "/radius-profile", "/status"):
         assert client.get(page).status_code == 200, page
+    assert "VLAN 10 bearbeiten" in client.get("/settings/vlans?vlan=10").text
+    assert client.get("/settings?vlan=10").headers["Location"].endswith("/settings/vlans?vlan=10")
     for kind in ("mobileconfig-eap", "sswan-eap", "win-ikev2-eap", "win-sstp", "ca"):
         r = client.get(f"/radius-profile/dl/{kind}")
         assert r.status_code == 200, kind
@@ -146,8 +154,7 @@ def test_dashboard_stats_tools(client):
     import json as _json
     tok = login_and_setup(client)
     client.post("/clients", data={"name": "csp-test", "tunnel": "full", "csrf_token": tok})
-    for page in ("/", "/statistik", "/werkzeuge", "/status", "/settings", "/clients", "/clients/csp-test",
-                 "/system", "/radius-profile"):
+    for page in ("/", "/clients", "/clients/neu", "/status", "/status/protokoll", "/statistik", "/werkzeuge", "/settings/allgemein", "/settings/protokolle", "/settings/radius", "/settings/vlans", "/settings/ipsec", "/settings/dyndns", "/settings/zertifikate", "/system", "/system/netzwerk", "/system/updates", "/system/sicherung", "/system/dienste", "/clients/csp-test", "/radius-profile"):
         r = client.get(page)
         assert r.status_code == 200, page
         assert 'style="' not in r.text, f"Inline-Style (CSP) auf {page}"
@@ -175,18 +182,18 @@ def test_dashboard_stats_tools(client):
 
 def test_software_update_settings(client):
     tok = login_and_setup(client)
-    page = client.get("/system").text
+    page = client.get("/system/updates").text
     assert "Software-Update" in page and "rschulzgit/vpn-server" in page
     assert 'name="channel" value="release" checked' in page  # Standard: Releases ohne Token
     client.post("/system", data={"action": "app-update-settings", "repo": "kaputt", "channel": "branch",
                                  "branch": "main", "csrf_token": tok})
-    assert "Ungültiges Repository" in client.get("/system").text
+    assert "Ungültiges Repository" in client.get("/system/updates").text
     client.post("/system", data={"action": "app-update-settings", "repo": "rschulzgit/vpn-server",
                                  "channel": "branch", "branch": "claude/vpn-server-iso",
                                  "token": "github_pat_" + "A" * 40, "auto": "1", "csrf_token": tok})
     u = st.load()["update"]
     assert u["branch"] == "claude/vpn-server-iso" and u["auto"] and u["token"].startswith("github_pat_")
-    assert "gespeichert" in client.get("/system").text
+    assert "gespeichert" in client.get("/system/updates").text
     client.post("/system", data={"action": "app-update-settings", "repo": "rschulzgit/vpn-server",
                                  "channel": "release", "branch": "", "token_clear": "1", "csrf_token": tok})
     u = st.load()["update"]
@@ -202,7 +209,40 @@ def test_sponsor_link_only_on_system_page(client):
     assert f'href="{__sponsor_url__}"' in page and "Projekt unterstützen" in page
     assert 'rel="noopener noreferrer"' in page and "GPL-3.0-or-later" in page
     client.post("/clients", data={"name": "sp-test", "tunnel": "full", "csrf_token": tok})
-    for other in ("/", "/clients", "/clients/sp-test", "/statistik", "/status", "/werkzeuge",
-                  "/settings", "/radius-profile"):
+    for other in ("/", "/clients", "/clients/neu", "/status", "/status/protokoll", "/statistik", "/werkzeuge", "/settings/allgemein", "/settings/protokolle", "/settings/radius", "/settings/vlans", "/settings/ipsec", "/settings/dyndns", "/settings/zertifikate", "/system", "/system/netzwerk", "/system/updates", "/system/sicherung", "/system/dienste", "/clients/sp-test", "/radius-profile"):
+        if other == "/system":
+            continue
         text = client.get(other).text
         assert __sponsor_url__ not in text and "Projekt unterstützen" not in text, other
+
+
+def test_navigation_and_add_client(client):
+    """Seitenleiste mit Gruppen, Client-Anlage ueber eigene Seite, Netzwerkplan mit Links."""
+    import json as _json
+    tok = login_and_setup(client)
+    page = client.get("/settings/radius").text
+    # Gruppe der aktuellen Seite ist aufgeklappt, der Unterpunkt markiert
+    assert re.search(r'<details class="nav-group" data-group="einstellungen" open>', page)
+    assert re.search(r'<details class="nav-group" data-group="system" >', page)
+    assert re.search(r'class="active" href="/settings/radius">RADIUS<', page)
+    for href in ("/status", "/status/protokoll", "/settings/vlans", "/system/dienste", "/system/updates"):
+        assert f'href="{href}"' in page, href
+    # Dienste stehen unter System, nicht mehr bei den Verbindungen
+    assert "systemd-Unit" in client.get("/system/dienste").text
+    assert "systemd-Unit" not in client.get("/status").text
+    assert "Verbindungsprotokoll" in client.get("/status/protokoll").text
+    # Clients: Button statt Formular unter der Liste
+    clients = client.get("/clients").text
+    assert 'href="/clients/neu"' in clients and 'name="password"' not in clients
+    form = client.get("/clients/neu").text
+    assert 'action="/clients"' in form and 'name="name"' in form
+    r = client.post("/clients", data={"name": "neu", "tunnel": "full", "csrf_token": tok})
+    assert r.headers["Location"].endswith("/clients/neu")
+    assert "reserviert" in client.get("/clients/neu").text and "neu" not in st.load()["clients"]
+    r = client.post("/clients", data={"name": "nav-test", "tunnel": "full", "csrf_token": tok})
+    assert r.headers["Location"].endswith("/clients/nav-test")
+    # Netzwerkplan: Daten fuer anklickbare Geraete
+    dash = client.get("/").text
+    data = _json.loads(re.search(r'<script id="dash-data" type="application/json">(.*?)</script>', dash, re.S).group(1))
+    assert "nav-test" in data["clients"] and data["client_url"] == "/clients/__NAME__"
+    assert data["sessions_url"] == "/status"

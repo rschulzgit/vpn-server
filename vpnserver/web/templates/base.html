@@ -20,14 +20,38 @@
     <span class="brand-logo">{{ icon('shield') }}</span>
     <span><strong>VPN-Server</strong><small>{{ (state.server.name if state is defined and state.server.name) or 'Verwaltung' }}</small></span>
   </a>
+  {% set vpage = (request.view_args or {}).get('page', '') %}
   <nav class="side-nav">
     <a class="{{ 'active' if ep == 'dashboard' }}" href="{{ url_for('dashboard') }}">{{ icon('dashboard') }}<span>Übersicht</span></a>
     <a class="{{ 'active' if ep.startswith('client') }}" href="{{ url_for('clients') }}">{{ icon('clients') }}<span>Clients</span></a>
     <a class="{{ 'active' if ep == 'statistics_page' }}" href="{{ url_for('statistics_page') }}">{{ icon('stats') }}<span>Statistik</span></a>
-    <a class="{{ 'active' if ep == 'status_page' }}" href="{{ url_for('status_page') }}">{{ icon('status') }}<span>Verbindungen</span></a>
+    {% set grp = ep in ('status_page', 'status_events') %}
+    <details class="nav-group" data-group="verbindungen" {{ 'open' if grp }}>
+      <summary class="{{ 'current' if grp }}">{{ icon('status') }}<span>Verbindungen</span>{{ icon('chevron', 'ic chev') }}</summary>
+      <div class="nav-sub">
+        <a class="{{ 'active' if ep == 'status_page' }}" href="{{ url_for('status_page') }}">Aktive Verbindungen</a>
+        <a class="{{ 'active' if ep == 'status_events' }}" href="{{ url_for('status_events') }}">Verbindungsprotokoll</a>
+      </div>
+    </details>
     <a class="{{ 'active' if ep == 'tools_page' }}" href="{{ url_for('tools_page') }}">{{ icon('tools') }}<span>Werkzeuge</span></a>
-    <a class="{{ 'active' if ep in ('settings', 'radius_profiles') }}" href="{{ url_for('settings') }}">{{ icon('settings') }}<span>Einstellungen</span></a>
-    <a class="{{ 'active' if ep == 'system_page' }}" href="{{ url_for('system_page') }}">{{ icon('system') }}<span>System</span></a>
+    {% set grp = ep in ('settings', 'radius_profiles') %}
+    <details class="nav-group" data-group="einstellungen" {{ 'open' if grp }}>
+      <summary class="{{ 'current' if grp }}">{{ icon('settings') }}<span>Einstellungen</span>{{ icon('chevron', 'ic chev') }}</summary>
+      <div class="nav-sub">
+        {% for key, meta in SETTINGS_PAGES.items() %}
+        <a class="{{ 'active' if (ep == 'settings' and vpage == key) or (key == 'radius' and ep == 'radius_profiles') }}" href="{{ url_for('settings', page=key) }}">{{ meta[0] }}</a>
+        {% endfor %}
+      </div>
+    </details>
+    {% set grp = ep == 'system_page' %}
+    <details class="nav-group" data-group="system" {{ 'open' if grp }}>
+      <summary class="{{ 'current' if grp }}">{{ icon('system') }}<span>System</span>{{ icon('chevron', 'ic chev') }}</summary>
+      <div class="nav-sub">
+        {% for key, meta in SYSTEM_PAGES.items() %}
+        <a class="{{ 'active' if ep == 'system_page' and vpage == key }}" href="{{ url_for('system_page', page=key) }}">{{ meta[0] }}</a>
+        {% endfor %}
+      </div>
+    </details>
   </nav>
   <div class="side-foot">
     <form method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Verbindungsprotokoll{% endblock %}
+{% block content %}
+<div class="page-head"><div><h1>Verbindungsprotokoll</h1><p class="page-sub">An- und Abmeldungen der letzten Zeit mit Dauer und Datenvolumen</p></div></div>
+<div class="card">
+  <div class="table-wrap"><table id="events">
+    <thead><tr><th>Zeit</th><th>Ereignis</th><th>Benutzer</th><th>Protokoll</th><th>VPN-IP</th><th>Von</th><th class="num">Dauer</th><th class="num">Volumen</th></tr></thead>
+    <tbody><tr><td colspan="8" class="muted">Wird geladen …</td></tr></tbody>
+  </table></div>
+  <p class="hint">Wird alle 30 Sekunden aktualisiert.</p>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='charts.js') }}?v={{ version }}"></script>
+<script src="{{ url_for('static', filename='status.js') }}?v={{ version }}"></script>
+{% endblock %}

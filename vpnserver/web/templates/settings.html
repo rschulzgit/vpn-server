@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 {% from "_macros.html" import csrf, kv %}
-{% block title %}Einstellungen{% endblock %}
+{% block title %}{{ page_title }}{% endblock %}
 {% block content %}
-<h1>Einstellungen</h1>
+<div class="page-head"><div><h1>{{ page_title }}</h1><p class="page-sub">{{ page_sub }}</p></div></div>
 {% set pr = state.proto %}
 
+{% if page == 'allgemein' %}
 <div class="panel" id="general">
-  <h2>Allgemein</h2>
   <form method="post">{{ csrf() }}<input type="hidden" name="section" value="general">
     <div class="grid-2">
       <div>
@@ -37,9 +37,10 @@
     <div class="actions"><button class="btn" type="submit">Speichern</button></div>
   </form>
 </div>
+{% endif %}
 
+{% if page == 'protokolle' %}
 <div class="panel" id="protocols">
-  <h2>Protokolle &amp; Ports</h2>
   <form method="post">{{ csrf() }}<input type="hidden" name="section" value="protocols">
     <div class="table-wrap"><table>
       <thead><tr><th>Aktiv</th><th>Protokoll</th><th>Port(s)</th><th>Hinweis</th></tr></thead>
@@ -75,11 +76,11 @@
     <div class="actions"><button class="btn" type="submit">Speichern</button></div>
   </form>
 </div>
+{% endif %}
 
-
+{% if page == 'radius' %}
 <div class="panel" id="radius">
-  <h2>RADIUS-Anmeldung</h2>
-  <p>Benutzer können sich mit den Zugangsdaten eines vorhandenen RADIUS-Servers anmelden (z. B. Windows NPS/Active Directory, FreeRADIUS, UniFi, Synology). Wie bei einem WLAN-Controller kann der RADIUS-Server dabei ein <a href="#vlans">VLAN</a> zuweisen.</p>
+  <p>Benutzer können sich mit den Zugangsdaten eines vorhandenen RADIUS-Servers anmelden (z. B. Windows NPS/Active Directory, FreeRADIUS, UniFi, Synology). Wie bei einem WLAN-Controller kann der RADIUS-Server dabei ein <a href="{{ url_for('settings', page='vlans') }}">VLAN</a> zuweisen.</p>
   <p class="hint">Gilt für alle Verfahren mit Benutzername/Passwort: IKEv2 (EAP-MSCHAPv2), Cisco IPsec, L2TP/IPsec, SSTP, PPTP und OpenConnect. WireGuard, OpenVPN sowie IKEv2 mit Zertifikat/PSK verwenden Geräteschlüssel – deren VLAN wird beim jeweiligen Client festgelegt.</p>
   <form method="post">{{ csrf() }}<input type="hidden" name="section" value="radius">
     {% set r = state.radius %}
@@ -151,9 +152,10 @@
   {% if radius_test %}<div class="{{ 'infobox' if radius_test.ok else 'warnbox' }}">{{ radius_test.msg }}</div>{% endif %}
   {% endif %}
 </div>
+{% endif %}
 
+{% if page == 'vlans' %}
 <div class="panel" id="vlans">
-  <h2>VLANs</h2>
   <p>VPN-Benutzer landen – wie WLAN-Geräte mit dynamischer VLAN-Zuweisung – in einem bestimmten VLAN Ihres Netzes und erreichen nur dieses (bzw. über dessen Gateway das Internet). Die Zuordnung erfolgt pro Client oder über den RADIUS-Server.</p>
   <p class="hint">Voraussetzung: Der Switch-Port des Servers ist ein <strong>Trunk</strong> mit den VLANs als <strong>tagged</strong>. Der Server erhält in jedem VLAN eine eigene Adresse und maskiert den Verkehr der VPN-Clients dorthin (NAT). VPN-Clients in einem VLAN haben keinen Zugriff auf die Weboberfläche. Bis zu {{ max_vlans }} VLANs.</p>
   {% if vlans %}
@@ -166,7 +168,7 @@
         <td>{{ v.members }}</td>
         <td><span class="badge {{ 'ok' if v.link.up else 'err' }}">{{ v.link.text }}</span></td>
         <td class="row">
-          <a class="btn small secondary" href="{{ url_for('settings', vlan=v.id) }}#vlans">Bearbeiten</a>
+          <a class="btn small secondary" href="{{ url_for('settings', page='vlans', vlan=v.id) }}">Bearbeiten</a>
           <form method="post" class="inline-form" data-confirm="VLAN {{ v.id }} löschen? Zugeordnete Clients wechseln ins Standardnetz.">{{ csrf() }}
             <input type="hidden" name="section" value="vlan-delete"><input type="hidden" name="id" value="{{ v.id }}">
             <button class="btn small danger" type="submit">Löschen</button></form>
@@ -199,12 +201,13 @@
         <p class="hint">Aus diesem Bereich erhalten die VPN-Clients des VLANs ihre Adressen.</p></div>
     </div>
     <div class="actions"><button class="btn" type="submit">{{ 'Speichern' if vlan_edit else 'VLAN hinzufügen' }}</button>
-      {% if vlan_edit %}<a class="btn secondary" href="{{ url_for('settings') }}#vlans">Abbrechen</a>{% endif %}</div>
+      {% if vlan_edit %}<a class="btn secondary" href="{{ url_for('settings', page='vlans') }}">Abbrechen</a>{% endif %}</div>
   </form>
 </div>
+{% endif %}
 
+{% if page == 'ipsec' %}
 <div class="panel" id="ipsec">
-  <h2>IPsec-PSK (L2TP/IPsec und Cisco IPsec)</h2>
   <p>Gemeinsamer Schlüssel für IKEv1-Verbindungen. IKEv2 nutzt pro Client eigene Schlüssel.</p>
   <form method="post">{{ csrf() }}<input type="hidden" name="section" value="ipsec">
     <label for="ipsec_psk">Pre-Shared Key</label>
@@ -216,9 +219,10 @@
     </div>
   </form>
 </div>
+{% endif %}
 
+{% if page == 'dyndns' %}
 <div class="panel" id="ddns">
-  <h2>DynDNS</h2>
   <p>Hält einen DNS-Namen automatisch auf Ihre aktuelle öffentliche IP aktuell (Prüfung alle 5 Minuten). Nicht nötig, wenn Ihr Router das bereits übernimmt (z. B. MyFRITZ!).</p>
   <form method="post">{{ csrf() }}<input type="hidden" name="section" value="ddns">
     <div class="grid-2">
@@ -258,9 +262,10 @@
   <form method="post">{{ csrf() }}<input type="hidden" name="section" value="ddns-update"><button class="btn secondary" type="submit">Jetzt aktualisieren</button></form>
   {% endif %}
 </div>
+{% endif %}
 
+{% if page == 'zertifikate' %}
 <div class="panel" id="letsencrypt">
-  <h2>Zertifikate</h2>
   <dl class="kv">
     <dt>Eigene CA</dt><dd>{{ ca_cn }}</dd>
     <dt>Serverzertifikat</dt><dd>{{ cert.names | join(', ') }} – gültig bis {{ cert.not_after }}</dd>
@@ -282,4 +287,6 @@
   </form>
   {% endif %}
 </div>
+{% endif %}
+
 {% endblock %}

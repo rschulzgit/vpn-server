@@ -275,6 +275,10 @@ def set_client_vlan(state: dict, name: str, vid) -> bool:
     return True
 
 
+# Namen, die in der Weboberflaeche eine eigene Seite unter /clients/ haben
+RESERVED_CLIENT_NAMES = {"neu"}
+
+
 def new_client(state: dict, name: str, password: str | None = None, note: str = "",
                full_tunnel: bool = True, vlan: str = "") -> dict:
     if not util.valid_client_name(name):
@@ -282,6 +286,8 @@ def new_client(state: dict, name: str, password: str | None = None, note: str = 
                          "beginnend mit Buchstabe oder Ziffer.")
     if name in state["clients"]:
         raise ValueError(f"Ein Client mit dem Namen '{name}' existiert bereits.")
+    if name in RESERVED_CLIENT_NAMES:
+        raise ValueError(f"Der Name '{name}' ist reserviert, bitte einen anderen wählen.")
     if password is not None and password != "" and not util.valid_password(password):
         raise ValueError("Ungültiges Passwort (8-64 Zeichen; erlaubt: A-Z a-z 0-9 - _ . : ! + = @ % ^ * ? , / ~).")
     priv, pub = wg_keypair()
