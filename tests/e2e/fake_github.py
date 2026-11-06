@@ -23,9 +23,24 @@ import threading
 import time
 
 
+def _repo_files(repo_dir: str) -> list[str]:
+    """Versionierte Dateien (git ls-files); ohne git alle Dateien ausser Build-Resten."""
+    try:
+        res = subprocess.run(["git", "-c", "safe.directory=*", "-C", repo_dir, "ls-files"],
+                             capture_output=True, text=True, check=True)
+        return res.stdout.split("\n")
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        pass
+    skip = {".git", "__pycache__", "build", ".pytest_cache"}
+    out = []
+    for base, dirs, files in os.walk(repo_dir):
+        dirs[:] = [d for d in dirs if d not in skip]
+        out += [os.path.relpath(os.path.join(base, f), repo_dir) for f in files if not f.endswith(".pyc")]
+    return sorted(out)
+
+
 def build_tarball(repo_dir: str, prefix: str, version: str) -> bytes:
-    files = subprocess.run(["git", "-c", "safe.directory=*", "-C", repo_dir, "ls-files"], capture_output=True, text=True,
-                           check=True).stdout.split("\n")
+    files = _repo_files(repo_dir)
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
         for rel in files:
