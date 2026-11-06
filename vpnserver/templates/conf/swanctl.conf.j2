@@ -137,7 +137,7 @@ connections {
         children {
             l2tp {
                 mode = transport
-                # Hinter NAT meldet der Server seine private Adresse als Selektor;
+                # Hinter NAT meldet der Server seine private Adresse als Selektor,
                 # Windows (mit AssumeUDPEncapsulationContextOnSendRule=2), iOS/macOS
                 # und Android akzeptieren das.
                 local_ts = dynamic[udp/1701]
