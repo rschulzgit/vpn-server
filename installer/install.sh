@@ -3,6 +3,7 @@
 #
 #   sudo ./installer/install.sh            Installation auf einem bestehenden System
 #   ./installer/install.sh --iso           Aufruf durch den ISO-Installer (chroot, ohne Dienste-Start)
+#   ./installer/install.sh --upgrade       Aktualisierung einer bestehenden Installation (Selbst-Update)
 #
 # Optionen:
 #   --public-host NAME   Oeffentliche Adresse direkt setzen (sonst im Einrichtungsassistenten)
@@ -18,6 +19,7 @@ WITH_ACCEL=1
 while [ $# -gt 0 ]; do
   case "$1" in
     --iso) MODE=iso ;;
+    --upgrade) MODE=upgrade ;;
     --public-host) PUBLIC_HOST="$2"; shift ;;
     --no-accel) WITH_ACCEL=0 ;;
     -h|--help) sed -n 2,12p "$0"; exit 0 ;;
@@ -135,6 +137,10 @@ rm -rf "$APP_DIR/vpnserver"
 cp -a "$SRC_DIR/vpnserver" "$APP_DIR/"
 find "$APP_DIR" -name '__pycache__' -prune -exec rm -rf {} +
 install -m 0644 "$SRC_DIR/README.md" "$APP_DIR/README.md" 2>/dev/null || true
+# Herkunft des installierten Stands (vom ISO-Build bzw. vom Selbst-Update)
+if [ -f "$SRC_DIR/BUILD_INFO.json" ]; then
+  install -m 0644 "$SRC_DIR/BUILD_INFO.json" "$APP_DIR/INSTALLED.json"
+fi
 
 cat > /usr/local/sbin/vpnctl <<'EOF'
 #!/bin/sh
@@ -197,6 +203,18 @@ if [ "$MODE" = iso ]; then
 
 EOF
   log "Installation abgeschlossen - die Einrichtung erfolgt beim ersten Start."
+  exit 0
+fi
+
+# ---------------------------------------------------------------------------
+# Aktualisierung: Konfiguration neu anwenden und Dienste neu starten
+# ---------------------------------------------------------------------------
+if [ "$MODE" = upgrade ]; then
+  log "Konfiguration anwenden"
+  /usr/local/sbin/vpnctl apply --quiet --no-webui-restart
+  systemctl restart vpn-webui.service
+  systemctl restart vpn-stats.service >/dev/null 2>&1 || true
+  log "Aktualisierung abgeschlossen."
   exit 0
 fi
 

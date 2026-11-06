@@ -103,6 +103,7 @@ def default_state() -> dict:
         },
         "vlans": {},
         "tools": {"wol": []},
+        "update": {},
         "clients": {},
         "shares": {},
     }

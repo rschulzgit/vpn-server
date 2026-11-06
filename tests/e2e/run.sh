@@ -273,7 +273,11 @@ done
 # "Heimnetz"-Dienst: fuer den Gast ist der QEMU-Host 10.0.2.2
 python3 -m http.server 8099 --bind 127.0.0.1 --directory "$WORK" >/dev/null 2>&1 &
 HTTP_PID=$!
-trap 'kill $HTTP_PID 2>/dev/null; kill $(cat "$WORK/qemu.pid" 2>/dev/null) 2>/dev/null' EXIT
+# Nachgebildete GitHub-API fuer das Selbst-Update (privates Repository mit Token)
+python3 "$HERE/fake_github.py" --port 8097 --repo-dir "$HERE/../.." --version 9.9.9 \
+  --token e2e_update_token_0123456789 > "$WORK/fake-github.log" 2>&1 &
+GH_PID=$!
+trap 'kill $HTTP_PID $GH_PID 2>/dev/null; kill $(cat "$WORK/qemu.pid" 2>/dev/null) 2>/dev/null' EXIT
 
 echo "Warte auf die Weboberflaeche ..."
 for _ in $(seq 1 180); do

@@ -2,7 +2,7 @@
 {% from "_macros.html" import csrf %}
 {% block title %}System{% endblock %}
 {% block content %}
-<h1>System</h1>
+<div class="page-head"><div><h1>System</h1><p class="page-sub">Software, Netzwerk, Passwort und Sicherung</p></div></div>
 <div class="grid">
   <div class="panel">
     <h2>Information</h2>
@@ -53,10 +53,63 @@
   {% endif %}
 </div>
 
+<div class="panel" id="software">
+  <h2>Software-Update</h2>
+  <div class="grid-2">
+    <div>
+      <dl class="kv">
+        <dt>Installiert</dt><dd>Version {{ installed.version }}{% if installed.sha %} · <code>{{ installed.sha[:7] }}</code>{% endif %}{% if installed.ref %} · {{ installed.ref }}{% endif %}</dd>
+        {% if installed.installed %}<dt>Seit</dt><dd>{{ installed.installed[:16] | replace('T', ' ') }}</dd>{% endif %}
+        {% set av = upd.available %}
+        {% if av %}<dt>Verfügbar</dt><dd>Version {{ av.version }} · <code>{{ av.sha[:7] }}</code> · {{ av.ref }}
+          {% if av.newer %}<span class="badge warn">neu</span>{% else %}<span class="badge ok">aktuell</span>{% endif %}</dd>{% endif %}
+        {% if upd.last_check %}<dt>Geprüft</dt><dd>{{ upd.last_check[:16] | replace('T', ' ') }}</dd>{% endif %}
+      </dl>
+      {% if av and av.newer and av.notes %}<details><summary>Änderungen</summary><pre>{{ av.notes }}</pre></details>{% endif %}
+      <div class="actions">
+        <form method="post" class="inline-form">{{ csrf() }}<input type="hidden" name="action" value="app-update-check">
+          <button class="btn secondary" type="submit" {{ 'disabled' if app_update.state == 'running' }}>Nach Updates suchen</button></form>
+        {% if av and av.newer %}
+        <form method="post" class="inline-form" data-confirm="Version {{ av.version }} installieren? Die Weboberfläche ist dabei kurz nicht erreichbar; VPN-Verbindungen können kurz unterbrochen werden.">{{ csrf() }}<input type="hidden" name="action" value="app-update-install">
+          <button class="btn" type="submit" {{ 'disabled' if app_update.state == 'running' }}>Jetzt installieren</button></form>
+        {% endif %}
+        {% if app_update.backup %}
+        <form method="post" class="inline-form" data-confirm="Die vorherige Version wiederherstellen?">{{ csrf() }}<input type="hidden" name="action" value="app-update-rollback">
+          <button class="btn secondary" type="submit" {{ 'disabled' if app_update.state == 'running' }}>Vorherige Version wiederherstellen</button></form>
+        {% endif %}
+      </div>
+    </div>
+    <div>
+      <form method="post">{{ csrf() }}<input type="hidden" name="action" value="app-update-settings">
+        <label for="upd-repo">Repository (GitHub)</label>
+        <input id="upd-repo" name="repo" type="text" value="{{ upd.repo }}" placeholder="besitzer/name">
+        <label>Quelle</label>
+        <div class="row">
+          <label class="inline"><input type="radio" name="channel" value="release" {{ 'checked' if upd.channel == 'release' }}> Releases (geprüfte Stände, empfohlen)</label>
+          <label class="inline"><input type="radio" name="channel" value="branch" {{ 'checked' if upd.channel == 'branch' }}> Branch</label>
+          <input name="branch" type="text" value="{{ upd.branch }}" class="w-auto" placeholder="main">
+        </div>
+        <details {{ 'open' if upd.token }}>
+          <summary>GitHub-Token (optional, nur für private Repositorys/Forks)</summary>
+          <input id="upd-token" name="token" type="password" autocomplete="off" aria-label="GitHub-Token" placeholder="{{ 'gespeichert – leer lassen zum Beibehalten' if upd.token else 'github_pat_…' }}">
+          <p class="hint">Für das öffentliche Repository nicht nötig. Für ein privates Repository: Fine-grained Token mit Zugriff nur auf dieses Repository und der Berechtigung „Contents: Read-only“.{% if upd.token %} <label class="inline"><input type="checkbox" name="token_clear" value="1"> Token entfernen</label>{% endif %}</p>
+        </details>
+        <label class="inline"><input type="checkbox" name="auto" value="1" {{ 'checked' if upd.auto }}> Updates automatisch installieren (tägliche Prüfung)</label>
+        <div class="actions"><button class="btn secondary" type="submit">Speichern</button></div>
+      </form>
+    </div>
+  </div>
+  <div id="app-update-box" class="{{ '' if app_update.state != 'idle' else 'hidden' }}" data-state="{{ app_update.state }}">
+    <p><span class="badge {{ 'ok' if app_update.state == 'done' else ('err' if app_update.state == 'failed' else 'warn') }}" id="app-update-state">{{ {'running': 'läuft', 'done': 'fertig', 'failed': 'fehlgeschlagen'}.get(app_update.state, app_update.state) }}</span>
+      <span id="app-update-msg">{{ app_update.message }}</span></p>
+    <details {{ 'open' if app_update.state == 'running' }}><summary>Protokoll</summary><pre id="app-update-log">{{ app_update.log }}</pre></details>
+  </div>
+</div>
+
 <div class="grid">
   <div class="panel">
-    <h2>Updates</h2>
-    <p>Sicherheitsupdates werden automatisch täglich installiert. Hier können Sie alle verfügbaren Updates sofort einspielen.</p>
+    <h2>Betriebssystem-Updates</h2>
+    <p>Sicherheitsupdates für Debian werden automatisch täglich installiert. Hier können Sie alle verfügbaren Updates sofort einspielen.</p>
     <form method="post">{{ csrf() }}<input type="hidden" name="action" value="update">
       <button class="btn" type="submit" {{ 'disabled' if update_running }}>{{ 'Update läuft …' if update_running else 'Jetzt aktualisieren' }}</button></form>
     {% if update_log %}<details {{ 'open' if update_running }}><summary>Protokoll</summary><pre>{{ update_log }}</pre></details>{% endif %}
@@ -73,4 +126,7 @@
     </form>
   </div>
 </div>
+{% endblock %}
+{% block scripts %}
+<script src="{{ url_for('static', filename='system.js') }}?v={{ version }}"></script>
 {% endblock %}

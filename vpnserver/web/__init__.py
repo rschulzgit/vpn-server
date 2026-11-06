@@ -14,7 +14,7 @@ from flask import (Flask, Response, abort, flash, g, jsonify, redirect, render_t
                    request, session, url_for)
 
 from .. import (__version__, apply as ap, pki, profiles, state as st, stats, status, system, tools,
-               util, vlan)
+               updater, util, vlan)
 from ..state import PROTOCOL_LABELS, PROTOCOLS
 
 PUBLIC_ENDPOINTS = {"login", "static", "share", "share_download", "ca_download", "health"}
@@ -279,6 +279,10 @@ def create_app() -> Flask:
                 warnings.append(f"Dienst '{u['label']}' läuft nicht ({u['active']}). Details unter Status.")
         if system.reboot_required():
             warnings.append("Nach Systemupdates ist ein Neustart erforderlich (System -> Neustart).")
+        avail = state.get("update", {}).get("available") or {}
+        if avail.get("newer") and not updater.running():
+            warnings.append(f"Software-Update verfügbar: Version {avail.get('version')} "
+                            f"({str(avail.get('sha', ''))[:7]}) – unter System → Software-Update installieren.")
         route = util.default_route_info()
         return render_template("dashboard.html", state=state, units=units, sessions=sessions,
                                warnings=warnings, lan_ip=route.get("ip", ""),
@@ -996,6 +1000,48 @@ def create_app() -> Flask:
             elif action == "update":
                 system.start_update()
                 flash("Update gestartet. Der Fortschritt erscheint unten im Protokoll.", "ok")
+            elif action == "app-update-settings":
+                repo = request.form.get("repo", "").strip()
+                channel = request.form.get("channel", "release")
+                branch = request.form.get("branch", "").strip()
+                try:
+                    updater.validate_settings(repo, channel, branch or "main")
+                    with st.locked():
+                        s = st.load()
+                        u = updater.settings(s)
+                        if repo != u["repo"]:
+                            u["available"] = {}
+                        u.update(repo=repo, channel=channel, branch=branch or u["branch"],
+                                 auto=request.form.get("auto") == "1")
+                        if request.form.get("token_clear"):
+                            u["token"] = ""
+                        elif request.form.get("token", "").strip():
+                            tok = request.form["token"].strip()
+                            if not re.match(r"^[A-Za-z0-9_]{20,255}$", tok):
+                                raise updater.UpdateError("Das Token hat ein ungültiges Format.")
+                            u["token"] = tok
+                        st.save(s)
+                    flash("Update-Einstellungen gespeichert.", "ok")
+                except updater.UpdateError as exc:
+                    flash(str(exc), "error")
+            elif action == "app-update-check":
+                try:
+                    with st.locked():
+                        s = st.load()
+                        avail = updater.check(s)
+                        st.save(s)
+                    flash(f"Version {avail['version']} ({avail['sha'][:7]}) ist verfügbar." if avail["newer"]
+                          else "Die installierte Version ist aktuell.", "ok")
+                except updater.UpdateError as exc:
+                    flash(str(exc), "error")
+            elif action in ("app-update-install", "app-update-rollback"):
+                try:
+                    updater.start("install" if action == "app-update-install" else "rollback")
+                    flash("Gestartet. Der Fortschritt erscheint unten; die Weboberfläche startet dabei "
+                          "kurz neu.", "ok")
+                except updater.UpdateError as exc:
+                    flash(str(exc), "error")
+                return redirect(url_for("system_page") + "#software")
             elif action == "restore":
                 upload = request.files.get("backup")
                 if not upload:
@@ -1014,11 +1060,19 @@ def create_app() -> Flask:
                 abort(400)
             return redirect(url_for("system_page"))
         state = get_state()
-        return render_template("system.html", state=state, net=system.network_info(),
+        upd = updater.settings(state)
+        return render_template("system.html", state=state, net=system.network_info(), upd=upd,
+                               installed=updater.installed(), app_update=updater.status(),
                                uptime=system.uptime(), os_name=system.os_name(),
                                reboot=system.reboot_required(), hostname=util.hostname(),
                                update_running=system.update_running(),
                                update_log=(util.read_file(system.UPDATE_LOG) or "")[-6000:])
+
+    @app.route("/api/update/status")
+    def api_update_status():
+        data = updater.status()
+        data["installed"] = updater.installed()
+        return jsonify(data)
 
     @app.route("/system/backup")
     def backup():

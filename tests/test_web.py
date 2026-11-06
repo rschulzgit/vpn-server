@@ -171,3 +171,24 @@ def test_dashboard_stats_tools(client):
     r = client.post("/status/trennen", data={"user": "test", "csrf_token": tok})
     assert r.status_code == 302
     del _json
+
+
+def test_software_update_settings(client):
+    tok = login_and_setup(client)
+    page = client.get("/system").text
+    assert "Software-Update" in page and "rschulzgit/vpn-server" in page
+    assert 'name="channel" value="release" checked' in page  # Standard: Releases ohne Token
+    client.post("/system", data={"action": "app-update-settings", "repo": "kaputt", "channel": "branch",
+                                 "branch": "main", "csrf_token": tok})
+    assert "Ungültiges Repository" in client.get("/system").text
+    client.post("/system", data={"action": "app-update-settings", "repo": "rschulzgit/vpn-server",
+                                 "channel": "branch", "branch": "claude/vpn-server-iso",
+                                 "token": "github_pat_" + "A" * 40, "auto": "1", "csrf_token": tok})
+    u = st.load()["update"]
+    assert u["branch"] == "claude/vpn-server-iso" and u["auto"] and u["token"].startswith("github_pat_")
+    assert "gespeichert" in client.get("/system").text
+    client.post("/system", data={"action": "app-update-settings", "repo": "rschulzgit/vpn-server",
+                                 "channel": "release", "branch": "", "token_clear": "1", "csrf_token": tok})
+    u = st.load()["update"]
+    assert u["token"] == "" and u["channel"] == "release" and not u["auto"]
+    assert client.get("/api/update/status").get_json()["state"] == "idle"

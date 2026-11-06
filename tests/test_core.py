@@ -305,3 +305,46 @@ def test_tools_validation():
         tools.capture("eth99-gibts-nicht", 1, "")
     with pytest.raises(tools.ToolError):
         tools.dns("example.org", "PTR")
+
+
+def test_updater_with_fake_github(tmp_path):
+    import importlib.util
+    from vpnserver import updater
+    spec = importlib.util.spec_from_file_location(
+        "fake_github", os.path.join(os.path.dirname(__file__), "e2e", "fake_github.py"))
+    fg = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fg)
+    repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    fake = fg.FakeGitHub(repo_dir, "9.9.9", token="testtoken_0123456789abcdef", release=True)
+    srv = fake.serve(0, background=True)
+    port = srv.server_address[1]
+    s = st.default_state()
+    u = updater.settings(s)
+    u.update(api=f"http://127.0.0.1:{port}", repo="test/vpn-server", channel="branch", branch="main")
+    # Privates Repository ohne Token
+    with pytest.raises(updater.UpdateError, match="Token"):
+        updater.check(s)
+    u["token"] = "testtoken_0123456789abcdef"
+    avail = updater.check(s)
+    assert avail["version"] == "9.9.9" and avail["sha"] == fake.sha and avail["newer"]
+    assert s["update"]["available"]["sha"] == fake.sha
+    # Release-Kanal: Version vergleichen
+    u["channel"] = "release"
+    avail = updater.check(s)
+    assert avail["ref"] == "v9.9.9" and avail["newer"]
+    # Herunterladen, entpacken, pruefen
+    root = updater._download(u, fake.sha, str(tmp_path / "new"))
+    assert os.path.isfile(os.path.join(root, "installer", "install.sh"))
+    updater._verify(root)
+    with open(os.path.join(root, "vpnserver", "__init__.py")) as fh:
+        assert '"9.9.9"' in fh.read()
+    # Kaputter Stand wird abgelehnt
+    with open(os.path.join(root, "vpnserver", "cli.py"), "a") as fh:
+        fh.write("\ndef kaputt(:\n")
+    with pytest.raises(updater.UpdateError, match="Syntax"):
+        updater._verify(root)
+    with pytest.raises(updater.UpdateError):
+        updater.validate_settings("kein repo", "branch", "main")
+    with pytest.raises(updater.UpdateError):
+        updater.validate_settings("a/b", "branch", "main; rm -rf /")
+    srv.shutdown()

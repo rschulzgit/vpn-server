@@ -103,6 +103,11 @@ else
   log "Kein accel-ppp.deb - wird bei der Installation aus den Quellen gebaut"
 fi
 echo "$VERSION" > "$PAY/VERSION"
+# Herkunft fuer das Selbst-Update (Commit und Branch/Tag des Builds)
+GIT_SHA="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || echo "${GITHUB_SHA:-}")"
+GIT_REF="${GITHUB_REF_NAME:-$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || true)}"
+printf '{"version": "%s", "sha": "%s", "ref": "%s", "installed": "%s"}\n' \
+  "$VERSION" "$GIT_SHA" "$GIT_REF" "$(date -Is)" > "$PAY/BUILD_INFO.json"
 
 # ---------------------------------------------------------------------------
 # 3. Preseed-Dateien und Bootmenues

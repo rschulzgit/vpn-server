@@ -1634,6 +1634,68 @@ def t_rad_profiles():
     check(code == 200 and b"Passwort:" not in cmd and b"Add-VpnConnection" in cmd, "Windows-Skript")
 
 
+# =============================================================================
+# 9. Selbst-Update aus dem Repository (nachgebildete GitHub-API auf dem Test-Host)
+# =============================================================================
+
+def update_wait(timeout: int = 1200) -> dict:
+    last = {}
+
+    def done():
+        nonlocal last
+        try:
+            code, _u, raw = W.req("/api/update/status")
+            if code != 200:
+                return False
+            last = json.loads(raw)
+            return last.get("state") in ("done", "failed")
+        except (OSError, ValueError, Fail):
+            return False
+    wait_until(done, timeout, 10)
+    return last
+
+
+@test("Selbst-Update", "Update aus dem (privaten) Repository: prüfen, installieren, Dienste laufen")
+def t_app_update():
+    r = remote("vpnctl update source --api http://10.0.2.2:8097 --repo test/vpn-server "
+               "--channel branch --branch main --token e2e_update_token_0123456789")
+    check(r.returncode == 0, f"vpnctl update source: {r.stdout} {r.stderr[-300:]}")
+    _c, _u, raw = W.req("/system", {"action": "app-update-check"})
+    check(any("9.9.9" in f for f in W.flashes(raw)), f"Kein Update gefunden: {W.flashes(raw)}")
+    page = W.req("/")[2].decode(errors="replace")
+    check("Software-Update verfügbar" in page, "Kein Hinweis auf der Übersicht")
+    W.req("/system", {"action": "app-update-install"})
+    st = update_wait()
+    check(st.get("state") == "done", f"Update: {st.get('message')} | {st.get('log', '')[-800:]}")
+    check(st.get("installed", {}).get("version") == "9.9.9", f"Installiert: {st.get('installed')}")
+    check(wait_web(120), "Weboberfläche nach dem Update nicht erreichbar")
+    W.login(ADMIN_PW)
+    check("Version 9.9.9" in W.req("/system")[2].decode(errors="replace"), "Neue Version nicht aktiv")
+
+    def all_active():
+        return all(u["active"] == "active" for u in W.status()["units"] if u["wanted"])
+    check(wait_until(all_active, 90, 5), "Nicht alle Dienste laufen nach dem Update: " + ", ".join(
+        f"{u['unit']}={u['active']}" for u in W.status()["units"] if u["wanted"] and u["active"] != "active"))
+    r = wg_up(PROFILES[("e2e", "wireguard")].decode())
+    check(r.returncode == 0 and wait_until(lan_ok, 30, 2), "WireGuard nach dem Update")
+    return "(1.x -> 9.9.9)"
+
+
+@test("Selbst-Update", "Vorherige Version wiederherstellen")
+def t_app_rollback():
+    W.req("/system", {"action": "app-update-rollback"})
+    st = update_wait(600)
+    check(st.get("state") == "done", f"Wiederherstellung: {st.get('message')} | {st.get('log', '')[-600:]}")
+    check(wait_web(120), "Weboberfläche nach der Wiederherstellung nicht erreichbar")
+    W.login(ADMIN_PW)
+    page = W.req("/system")[2].decode(errors="replace")
+    check("Version 9.9.9" not in page, "Noch die neue Version aktiv")
+    r = remote("vpnctl update status")
+    check("9.9.9" not in r.stdout.split("\n")[0], f"vpnctl update status: {r.stdout}")
+    r = wg_up(PROFILES[("e2e", "wireguard")].decode())
+    check(r.returncode == 0 and wait_until(lan_ok, 30, 2), "WireGuard nach der Wiederherstellung")
+
+
 @test("Funktion", "Neustart: alle Dienste starten automatisch, Verbindungen funktionieren")
 def t_reboot():
     remote("systemd-run --on-active=2 systemctl reboot", timeout=30)
