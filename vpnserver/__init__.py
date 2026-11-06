@@ -8,7 +8,7 @@ Version, weitergeben und/oder veraendern. Es wird OHNE JEDE GEWAEHRLEISTUNG
 bereitgestellt. Details: Datei LICENSE. Name und Logo: siehe TRADEMARKS.md.
 """
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 __license__ = "GPL-3.0-or-later"
 __project__ = "VPN-Server"
 __url__ = "https://github.com/rschulzgit/vpn-server"

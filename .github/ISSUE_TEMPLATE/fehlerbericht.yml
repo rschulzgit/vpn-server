@@ -12,7 +12,7 @@ body:
     id: version
     attributes:
       label: Version
-      description: Steht unter System → Software-Update (z. B. 1.1.0 · abc1234)
+      description: Steht unter System → Updates (z. B. 1.2.0 · abc1234)
     validations:
       required: true
   - type: dropdown
