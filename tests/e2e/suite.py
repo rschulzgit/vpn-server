@@ -792,7 +792,8 @@ def write_swanctl() -> None:
       l2tp {{
         mode = transport
         local_ts = dynamic[udp/1701]
-        remote_ts = dynamic[udp/1701]
+        # wie Windows/iOS/Android: Selektor des Servers hinter NAT (private Adresse) akzeptieren
+        remote_ts = 0.0.0.0/0[udp/1701]
         esp_proposals = aes256-sha1,aes128-sha1
       }}
     }}

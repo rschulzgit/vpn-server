@@ -92,7 +92,7 @@ def test_render_strongswan(srv):
         assert re.search(rf"^\s+{name} \{{", conf, re.M), name
     assert "id = vpn.example.org" in conf
     assert 'secret = "Mein-Passwort1"' in conf
-    assert "local_ts = 0.0.0.0/0[udp/1701]" in conf
+    assert "local_ts = dynamic[udp/1701]" in conf and "remote_ts = dynamic[udp]" in conf
     assert ";" not in conf  # swanctl kennt kein Semikolon als Trenner
 
 

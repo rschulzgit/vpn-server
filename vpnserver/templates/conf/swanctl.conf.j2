@@ -137,12 +137,11 @@ connections {
         children {
             l2tp {
                 mode = transport
-                # Server hinter NAT (Heimrouter): jeden vom Client vorgeschlagenen
-                # Selektor fuer UDP/1701 annehmen (die tatsaechlichen Adressen setzt
-                # strongSwan im Transportmodus selbst ein). Mit "dynamic" wuerde der
-                # Server seine private Adresse melden, die strikte Clients ablehnen.
-                local_ts = 0.0.0.0/0[udp/1701]
-                remote_ts = 0.0.0.0/0[udp]
+                # Hinter NAT meldet der Server seine private Adresse als Selektor;
+                # Windows (mit AssumeUDPEncapsulationContextOnSendRule=2), iOS/macOS
+                # und Android akzeptieren das.
+                local_ts = dynamic[udp/1701]
+                remote_ts = dynamic[udp]
                 esp_proposals = {{ esp1_proposals }}
                 dpd_action = clear
                 rekey_time = 0s
