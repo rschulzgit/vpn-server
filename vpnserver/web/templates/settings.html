@@ -76,6 +76,133 @@
   </form>
 </div>
 
+
+<div class="panel" id="radius">
+  <h2>RADIUS-Anmeldung</h2>
+  <p>Benutzer können sich mit den Zugangsdaten eines vorhandenen RADIUS-Servers anmelden (z. B. Windows NPS/Active Directory, FreeRADIUS, UniFi, Synology). Wie bei einem WLAN-Controller kann der RADIUS-Server dabei ein <a href="#vlans">VLAN</a> zuweisen.</p>
+  <p class="hint">Gilt für alle Verfahren mit Benutzername/Passwort: IKEv2 (EAP-MSCHAPv2), Cisco IPsec, L2TP/IPsec, SSTP, PPTP und OpenConnect. WireGuard, OpenVPN sowie IKEv2 mit Zertifikat/PSK verwenden Geräteschlüssel – deren VLAN wird beim jeweiligen Client festgelegt.</p>
+  <form method="post">{{ csrf() }}<input type="hidden" name="section" value="radius">
+    {% set r = state.radius %}
+    <label class="inline"><input type="checkbox" name="enabled" value="1" {{ 'checked' if r.enabled }}> Externen RADIUS-Server verwenden</label>
+    <div class="table-wrap"><table>
+      <thead><tr><th></th><th>Adresse</th><th>Auth-Port</th><th>Accounting-Port</th><th>Gemeinsames Geheimnis</th></tr></thead>
+      <tbody>
+      {% for i in [1, 2] %}{% set srv = r.servers[i - 1] if r.servers | length >= i else {} %}
+        <tr><td>{{ 'Server' if i == 1 else 'Ausweich-Server' }}</td>
+          <td><input type="text" name="host{{ i }}" value="{{ srv.host or '' }}" placeholder="{{ '192.168.1.10' if i == 1 else 'optional' }}"></td>
+          <td><input type="number" name="auth_port{{ i }}" value="{{ srv.auth_port or 1812 }}" min="1" max="65535" style="width:7rem"></td>
+          <td><input type="number" name="acct_port{{ i }}" value="{{ srv.acct_port or 1813 }}" min="1" max="65535" style="width:7rem"></td>
+          <td><input type="password" name="secret{{ i }}" autocomplete="new-password" placeholder="{{ 'gespeichert' if srv.secret else '' }}"></td></tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+    <div class="grid-2">
+      <div>
+        <label for="nas_identifier">NAS-Identifier</label>
+        <input id="nas_identifier" name="nas_identifier" type="text" value="{{ r.nas_identifier }}" maxlength="64">
+        <p class="hint">Wird an den RADIUS-Server gesendet (z. B. für Richtlinien nur für VPN). NAS-IP-Address: <code>{{ lan_ip or '?' }}</code>, NAS-Port-Type: Virtual.</p>
+      </div>
+      <div>
+        <label>Optionen</label>
+        <label class="inline"><input type="checkbox" name="local_users" value="1" {{ 'checked' if r.local_users }}> Lokale Clients zusätzlich zulassen (werden zuerst geprüft)</label>
+        <label class="inline"><input type="checkbox" name="accounting" value="1" {{ 'checked' if r.accounting }}> Accounting an den RADIUS-Server senden</label>
+      </div>
+      <div>
+        <label for="unknown_vlan">RADIUS-Server weist ein VLAN zu, das hier nicht eingerichtet ist</label>
+        <select id="unknown_vlan" name="unknown_vlan">
+          <option value="reject" {{ 'selected' if r.unknown_vlan == 'reject' }}>Anmeldung ablehnen (sicher)</option>
+          <option value="default" {{ 'selected' if r.unknown_vlan == 'default' }}>Standardnetz verwenden</option>
+        </select>
+      </div>
+      <div>
+        <label for="no_vlan">RADIUS-Benutzer ohne VLAN-Zuweisung</label>
+        <select id="no_vlan" name="no_vlan">
+          <option value="default" {{ 'selected' if r.no_vlan == 'default' }}>Standardnetz verwenden</option>
+          <option value="reject" {{ 'selected' if r.no_vlan == 'reject' }}>Anmeldung ablehnen</option>
+        </select>
+      </div>
+    </div>
+    <details>
+      <summary>So richten Sie den RADIUS-Server ein</summary>
+      <ul>
+        <li>Diesen VPN-Server als <strong>RADIUS-Client</strong> eintragen: IP-Adresse <code>{{ lan_ip or 'des Servers' }}</code>, dasselbe gemeinsame Geheimnis.</li>
+        <li>Erlaubte Verfahren: <strong>MS-CHAPv2</strong> und <strong>EAP-MSCHAPv2</strong> (Windows, iOS, Android, L2TP, SSTP, IKEv2) sowie <strong>PAP</strong> (OpenConnect, Cisco IPsec).</li>
+        <li>VLAN-Zuweisung wie beim WLAN: <code>Tunnel-Type = VLAN (13)</code>, <code>Tunnel-Medium-Type = IEEE-802 (6)</code>, <code>Tunnel-Private-Group-Id = &lt;VLAN-ID&gt;</code>.</li>
+        <li>Windows NPS: Netzwerkrichtlinie mit Bedingung „NAS-Porttyp = Virtuell (VPN)“, Authentifizierung MS-CHAP v2 (und für OpenConnect/Cisco IPsec „unverschlüsselte Authentifizierung (PAP)“), Einstellungen → Standard-RADIUS-Attribute → Tunnel-Attribute wie oben.</li>
+        <li>FreeRADIUS (<code>users</code>): <code>max Cleartext-Password := "…"</code> und darunter <code>Tunnel-Type = VLAN, Tunnel-Medium-Type = IEEE-802, Tunnel-Private-Group-Id = "10"</code>.</li>
+      </ul>
+    </details>
+    <div class="actions">
+      <button class="btn" type="submit">Speichern</button>
+      <a class="btn secondary" href="{{ url_for('radius_profiles') }}">Profile für RADIUS-Benutzer</a>
+    </div>
+  </form>
+  {% if state.radius.servers %}
+  <h3>Verbindung testen</h3>
+  <form method="post">{{ csrf() }}<input type="hidden" name="section" value="radius-test">
+    <div class="row">
+      <input name="test_user" type="text" placeholder="Benutzername" autocomplete="off" required>
+      <input name="test_password" type="password" placeholder="Passwort" autocomplete="new-password" required>
+      <select name="test_method"><option value="pap">PAP</option><option value="mschap">MS-CHAP</option></select>
+      <button class="btn secondary" type="submit">Testen</button>
+    </div>
+    <p class="hint">Sendet eine Anmeldung direkt an den ersten RADIUS-Server und zeigt das zugewiesene VLAN.</p>
+  </form>
+  {% if radius_test %}<div class="{{ 'infobox' if radius_test.ok else 'warnbox' }}">{{ radius_test.msg }}</div>{% endif %}
+  {% endif %}
+</div>
+
+<div class="panel" id="vlans">
+  <h2>VLANs</h2>
+  <p>VPN-Benutzer landen – wie WLAN-Geräte mit dynamischer VLAN-Zuweisung – in einem bestimmten VLAN Ihres Netzes und erreichen nur dieses (bzw. über dessen Gateway das Internet). Die Zuordnung erfolgt pro Client oder über den RADIUS-Server.</p>
+  <p class="hint">Voraussetzung: Der Switch-Port des Servers ist ein <strong>Trunk</strong> mit den VLANs als <strong>tagged</strong>. Der Server erhält in jedem VLAN eine eigene Adresse und maskiert den Verkehr der VPN-Clients dorthin (NAT). VPN-Clients in einem VLAN haben keinen Zugriff auf die Weboberfläche. Bis zu {{ max_vlans }} VLANs.</p>
+  {% if vlans %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>VLAN</th><th>Name</th><th>Schnittstelle</th><th>Server-Adresse</th><th>Gateway</th><th>VPN-Adressen</th><th>Clients</th><th>Link</th><th></th></tr></thead>
+    <tbody>
+    {% for v in vlans %}
+      <tr><td><strong>{{ v.id }}</strong></td><td>{{ v.name }}</td><td><code>{{ v.ifname }}</code> auf <code>{{ v.parent_eff }}</code></td>
+        <td><code>{{ v.address }}</code></td><td><code>{{ v.gateway or '–' }}</code></td><td><code>{{ v.vpn_net }}</code></td>
+        <td>{{ v.members }}</td>
+        <td><span class="badge {{ 'ok' if v.link.up else 'err' }}">{{ v.link.text }}</span></td>
+        <td class="row">
+          <a class="btn small secondary" href="{{ url_for('settings', vlan=v.id) }}#vlans">Bearbeiten</a>
+          <form method="post" class="inline-form" data-confirm="VLAN {{ v.id }} löschen? Zugeordnete Clients wechseln ins Standardnetz.">{{ csrf() }}
+            <input type="hidden" name="section" value="vlan-delete"><input type="hidden" name="id" value="{{ v.id }}">
+            <button class="btn small danger" type="submit">Löschen</button></form>
+        </td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% endif %}
+  {% set e = vlan_edit or {} %}
+  <h3>{{ 'VLAN %s bearbeiten' % e.id if vlan_edit else 'VLAN hinzufügen' }}</h3>
+  <form method="post">{{ csrf() }}<input type="hidden" name="section" value="vlan-save">
+    <input type="hidden" name="old_id" value="{{ e.id or '' }}">
+    <div class="grid-2">
+      <div><label for="vlan-id">VLAN-ID</label><input id="vlan-id" name="id" type="number" min="1" max="4094" value="{{ e.id or '' }}" required></div>
+      <div><label for="vlan-name">Name</label><input id="vlan-name" name="name" type="text" maxlength="32" value="{{ e.name or '' }}" placeholder="z. B. Gäste"></div>
+      <div>
+        <label for="vlan-parent">Netzwerkkarte (Trunk)</label>
+        <select id="vlan-parent" name="parent">
+          <option value="">automatisch ({{ default_dev or '?' }})</option>
+          {% for i in interfaces %}<option value="{{ i }}" {{ 'selected' if e.parent == i }}>{{ i }}</option>{% endfor %}
+        </select>
+      </div>
+      <div><label for="vlan-address">Adresse des Servers im VLAN</label><input id="vlan-address" name="address" type="text" value="{{ e.address or '' }}" placeholder="192.168.10.2/24" required>
+        <p class="hint">Feste, freie Adresse mit Präfix.</p></div>
+      <div><label for="vlan-gw">Gateway (Router des VLANs)</label><input id="vlan-gw" name="gateway" type="text" value="{{ e.gateway or '' }}" placeholder="192.168.10.1">
+        <p class="hint">Leer = nur das VLAN-Netz selbst ist erreichbar, kein Internet.</p></div>
+      <div><label for="vlan-dns">DNS-Server für dieses VLAN</label><input id="vlan-dns" name="dns" type="text" value="{{ (e.dns or []) | join(', ') }}" placeholder="leer = allgemeine DNS-Server">
+      </div>
+      <div><label for="vlan-net">VPN-Adressbereich (erweitert)</label><input id="vlan-net" name="vpn_net" type="text" value="{{ e.vpn_net or '' }}" placeholder="automatisch (10.67.x.0/24)">
+        <p class="hint">Aus diesem Bereich erhalten die VPN-Clients des VLANs ihre Adressen.</p></div>
+    </div>
+    <div class="actions"><button class="btn" type="submit">{{ 'Speichern' if vlan_edit else 'VLAN hinzufügen' }}</button>
+      {% if vlan_edit %}<a class="btn secondary" href="{{ url_for('settings') }}#vlans">Abbrechen</a>{% endif %}</div>
+  </form>
+</div>
+
 <div class="panel" id="ipsec">
   <h2>IPsec-PSK (L2TP/IPsec und Cisco IPsec)</h2>
   <p>Gemeinsamer Schlüssel für IKEv1-Verbindungen. IKEv2 nutzt pro Client eigene Schlüssel.</p>

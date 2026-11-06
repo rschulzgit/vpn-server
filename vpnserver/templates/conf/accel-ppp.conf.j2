@@ -1,7 +1,11 @@
 # Verwaltet von VPN-Server - manuelle Aenderungen werden ueberschrieben.
 [modules]
 log_file
+{% if radius %}
+radius
+{% else %}
 chap-secrets
+{% endif %}
 {% if l2tp %}
 l2tp
 {% endif %}
@@ -88,11 +92,29 @@ dns{{ loop.index }}={{ d }}
 
 [ip-pool]
 gw-ip-address={{ gw_ip }}
+attr=Framed-Pool
 {{ pool_range }},name=vpn-ppp
+{% for p in vlan_pools %}
+{{ p.range }},name={{ p.name }}
+{% endfor %}
+{% if radius %}
 
+[radius]
+# Lokaler RADIUS-Dienst (Framed-Pool waehlt den Adressbereich des VLANs)
+nas-identifier=vpn-ppp
+nas-ip-address=127.0.0.1
+gw-ip-address={{ gw_ip }}
+server=127.0.0.1,{{ secret }},auth-port=1812,acct-port=1813,req-limit=0,fail-time=0
+timeout=10
+max-try=3
+verbose=1
+{% endif %}
+
+{% if not radius %}
 [chap-secrets]
 gw-ip-address={{ gw_ip }}
 chap-secrets=/etc/vpn-server/chap-secrets
+{% endif %}
 
 [log]
 log-file=/var/log/accel-ppp/accel-ppp.log

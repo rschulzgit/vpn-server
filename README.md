@@ -32,6 +32,8 @@ und zeigt pro Betriebssystem eine Schritt-für-Schritt-Anleitung an.
 - Protokolle einzeln an-/abschalten, Ports und Adressbereiche ändern
 - **DynDNS** (DuckDNS, dynv6, IPv64, No-IP/DynDNS2, eigene URL)
 - **Let's Encrypt** (optional) für SSTP, OpenConnect und die Weboberfläche
+- **RADIUS-Anmeldung** (externer RADIUS-Server, z. B. Windows NPS) und **VLAN-Zuweisung** wie beim
+  WLAN-Controller (siehe unten)
 - Netzwerk (DHCP/statische IP), Updates, Sicherung/Wiederherstellung, Neustart
 - Automatische Sicherheitsupdates, Firewall (nftables), Weboberfläche und SSH standardmäßig
   nur aus dem Heimnetz bzw. über VPN erreichbar
@@ -116,6 +118,45 @@ anfragen (oft kostenlos), oder den Server auf einem VPS installieren.
 | Linux | WireGuard | NetworkManager (OpenVPN, IKEv2, OpenConnect …) |
 | Firmennetz/Hotel mit strenger Firewall | SSTP (TCP 443), OpenConnect, OpenVPN TCP | |
 
+## RADIUS-Anmeldung und VLANs (wie beim WLAN-Controller)
+
+*Einstellungen → RADIUS-Anmeldung / VLANs*
+
+**RADIUS:** Benutzer melden sich mit den Zugangsdaten eines vorhandenen RADIUS-Servers an
+(Windows NPS mit Active Directory, FreeRADIUS, UniFi, Synology …). Das gilt für alle Verfahren
+mit Benutzername/Passwort: IKEv2 (EAP-MSCHAPv2), Cisco IPsec, L2TP/IPsec, SSTP, PPTP und
+OpenConnect. Lokale Clients können zusätzlich erlaubt bleiben (werden zuerst geprüft). Ein
+Ausweich-Server und Accounting werden unterstützt; der Verbindungstest in der Weboberfläche zeigt
+das zugewiesene VLAN. Für RADIUS-Benutzer gibt es **Profile ohne gespeicherte Zugangsdaten**
+(`.mobileconfig`, `.sswan`, Windows-Skripte), die an alle verteilt werden können.
+
+Auf dem RADIUS-Server den VPN-Server als RADIUS-Client (NAS) mit seiner LAN-IP und dem
+gemeinsamen Geheimnis eintragen und MS-CHAPv2/EAP-MSCHAPv2 (sowie PAP für OpenConnect und
+Cisco IPsec) erlauben. NAS-Port-Type ist `Virtual`, der NAS-Identifier ist einstellbar.
+
+**VLAN-Zuweisung:** Der RADIUS-Server liefert – genau wie für WLAN-Clients –
+`Tunnel-Type = VLAN`, `Tunnel-Medium-Type = IEEE-802`, `Tunnel-Private-Group-Id = <VLAN-ID>`.
+Der VPN-Benutzer landet dann in diesem VLAN: Er erhält eine Adresse aus dem VPN-Bereich des
+VLANs, sein Verkehr verlässt den Server über die VLAN-Schnittstelle (802.1Q, mit NAT auf die
+Server-Adresse im VLAN) und er erreicht **nur dieses VLAN** bzw. über dessen Gateway das
+Internet – nicht das übrige Heimnetz, andere VLANs oder die Weboberfläche.
+
+- Voraussetzung: Der Switch-Port des Servers ist ein **Trunk** mit den VLANs als *tagged*.
+- Pro VLAN: ID, Name, Netzwerkkarte, feste Server-Adresse, Gateway (optional) und DNS-Server.
+- Lokale Clients bekommen ihr VLAN in der Weboberfläche – auch für WireGuard, OpenVPN und
+  IKEv2 mit Zertifikat/PSK, die ohne RADIUS auskommen.
+- Nicht eingerichtete VLAN-IDs werden standardmäßig abgelehnt (einstellbar), RADIUS-Benutzer
+  ohne VLAN landen im Standardnetz (einstellbar). Eigene Adressvorgaben des RADIUS-Servers
+  (Framed-IP-Address, Class …) werden ignoriert.
+- Bis zu 8 VLANs; je VLAN und Protokoll ca. 30 gleichzeitige Verbindungen, OpenVPN 14 Geräte
+  (größere Bereiche über die erweiterten Einstellungen).
+
+Technik: Ein lokaler FreeRADIUS (`vpn-radius.service`, nur auf 127.0.0.1) prüft lokale Benutzer,
+leitet andere an den externen Server weiter und übersetzt die VLAN-Zuweisung für strongSwan
+(Gruppe), accel-ppp (Adresspool) und ocserv (Gruppe). Accounting wird sofort lokal bestätigt und
+an den externen Server kopiert, damit ein nicht erreichbarer Accounting-Server keine Verbindung
+trennt.
+
 ## Kommandozeile (`vpnctl`)
 
 Auf der Konsole bzw. per SSH als `vpnadmin`:
@@ -162,6 +203,9 @@ automatisch getestet (`tests/e2e/`):
   DNS durch den Tunnel
 - **Profile:** QR-Code wird dekodiert und verglichen, Windows-Skripte laufen in PowerShell mit
   nachgebildeten Windows-Befehlen, PKCS#12/.mobileconfig/.sswan werden geprüft
+- **RADIUS/VLAN:** externer FreeRADIUS mit VLAN-Attributen, VLAN-Trunk an der Test-VM;
+  RADIUS-Benutzer per IKEv2, Cisco IPsec, L2TP, SSTP und OpenConnect sowie lokale Geräte per
+  WireGuard, OpenVPN und SSTP landen im richtigen VLAN; Isolation, Ablehnungen, Accounting
 - **Funktionen:** Client-zu-Client, Heimnetz-Sperre, Protokolle an/aus, Passwortwechsel,
   Sperren/Entsperren, Schlüssel erneuern, Löschen, Teilen-Link, Sicherung, `vpnctl`, Neustart
 

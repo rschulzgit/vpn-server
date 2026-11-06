@@ -129,12 +129,15 @@
           if (!d.sessions.length) {
             var tr = document.createElement("tr");
             var td = document.createElement("td");
-            td.colSpan = 6; td.className = "muted"; td.textContent = "Keine Verbindungen.";
+            td.colSpan = 7; td.className = "muted"; td.textContent = "Keine Verbindungen.";
             tr.appendChild(td); tbody.appendChild(tr);
           }
           d.sessions.forEach(function (s) {
             var tr = document.createElement("tr");
-            [s.user, s.proto, s.vip, s.remote, s.rx + " / " + s.tx, s.since].forEach(function (v) {
+            var cols = [s.user + (s.radius ? " (RADIUS)" : ""), s.proto, s.vip];
+            if (live.dataset.vlans) cols.push(s.vlan || "Standard");
+            cols.push(s.remote, s.rx + " / " + s.tx, s.since);
+            cols.forEach(function (v) {
               var td = document.createElement("td"); td.textContent = v || ""; tr.appendChild(td);
             });
             tbody.appendChild(tr);

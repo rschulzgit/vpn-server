@@ -174,3 +174,76 @@ def test_backup_roundtrip(srv):
     assert set(s2["clients"]) == set(srv["clients"])
     with pytest.raises(ValueError):
         system.restore_bytes(b"kein tar")
+
+
+def test_radius_vlan_render():
+    import ipaddress
+    from vpnserver import render, vlan
+    s = st.default_state()
+    s["server"]["public_host"] = "vpn.example.org"
+    st.ensure_server_keys(s)
+    s["vlans"]["10"] = vlan.validate(s, {"id": "10", "name": "Gäste", "address": "192.168.10.2/24",
+                                         "gateway": "192.168.10.1", "dns": "192.168.10.1"})
+    s["vlans"]["20"] = vlan.validate(s, {"id": "20", "name": "IoT", "address": "192.168.20.2/24"})
+    st.new_client(s, "alice", password="alicepass123", vlan="10")
+    st.new_client(s, "bob", password="bobpass12345")
+    st.new_client(s, "carol", password="carolpass123")["enabled"] = False
+    assert vlan.radius_mode(s)
+    files = render.render_all(s)
+    swan = files[render.SWANCTL_CONF][0]
+    # Gruppenbasierte Zuordnung fuer EAP/XAuth, Zertifikat je Client
+    assert "groups = vlan0" in swan and "groups = vlan10" in swan and "auth = eap-radius" in swan
+    assert "auth = xauth-radius" in swan and "ikev2-cert-alice" in swan and "eap-alice" not in swan
+    assert "vlan10-ipsec {\n        addrs = 10.67.1.34-10.67.1.62\n        dns = 192.168.10.1" in swan
+    assert "class_group = yes" in files[render.STRONGSWAN_CONF][0]
+    accel = files[render.ACCEL_CONF][0]
+    assert "\nradius\n" in accel and "10.67.1.66-94,name=vlan10" in accel and "chap-secrets=" not in accel
+    oc = files[render.OCSERV_CONF][0]
+    assert 'auth = "radius[' in oc and "config-per-group" in oc
+    assert files[f"{render.OCSERV_GROUP_DIR}/vlan10"][0].startswith("# VLAN 10")
+    users = files[render.RADIUS_USERS][0]
+    assert "\"alice\" Cleartext-Password := 'alicepass123'" in users
+    assert 'Tunnel-Private-Group-Id := "10"' in users and '"carol" Auth-Type := Reject' in users
+    rconf = files[render.RADIUSD_CONF][0]
+    assert 'case "10"' in rconf and 'case "20"' in rconf and "proxy_requests = no" in rconf
+    ccd = files[f"{render.ccd_dir('udp')}/alice"][0]
+    ip = ccd.split("ifconfig-push ")[1].split()[0]
+    assert ipaddress.ip_address(ip) in ipaddress.ip_network("10.66.67.128/28")
+    assert "nopool" in files[f"{render.OVPN_DIR}/udp.conf"][0]
+    nft = files[render.NFT_CONF][0]
+    assert 'oifname "vlan10" accept' in nft and "set vlan20_src" in nft
+    assert s["clients"]["alice"]["wg"]["ip"] == "10.67.1.2"
+    # Externer RADIUS-Server
+    s["radius"].update(enabled=True, servers=[{"host": "192.168.1.10", "auth_port": 1812,
+                                               "acct_port": 1813, "secret": "Geheim123!"}])
+    rconf = render.render_radius(s)[render.RADIUSD_CONF][0]
+    assert "proxy_requests = yes" in rconf and "secret = 'Geheim123!'" in rconf
+    assert "Replicate-To-Realm" in rconf and "/^(alice|bob)$/" in rconf
+    # Unbekannte VLAN-ID: Standardnetz statt Ablehnung
+    s["radius"]["unknown_vlan"] = "default"
+    assert "nicht eingerichtet" not in render.render_radius(s)[render.RADIUSD_CONF][0]
+    # Ohne VLANs und RADIUS bleibt alles wie bisher
+    s2 = st.default_state()
+    st.ensure_server_keys(s2)
+    st.new_client(s2, "dave", password="davepass1234")
+    f2 = render.render_all(s2)
+    assert "auth = eap-mschapv2" in f2[render.SWANCTL_CONF][0]
+    assert "chap-secrets=" in f2[render.ACCEL_CONF][0] and "eap-radius" not in f2[render.STRONGSWAN_CONF][0]
+
+
+def test_vlan_validation():
+    from vpnserver import vlan
+    s = st.default_state()
+    with pytest.raises(ValueError):
+        vlan.validate(s, {"id": "5000", "address": "192.168.10.2/24"})
+    with pytest.raises(ValueError):
+        vlan.validate(s, {"id": "10", "address": "192.168.10.0/24"})
+    with pytest.raises(ValueError):
+        vlan.validate(s, {"id": "10", "address": "10.66.66.5/24"})  # VPN-Bereich
+    with pytest.raises(ValueError):
+        vlan.validate(s, {"id": "10", "address": "192.168.10.2/24", "vpn_net": "8.8.8.0/24"})
+    for i in range(1, vlan.MAX_VLANS + 1):
+        s["vlans"][str(i)] = vlan.validate(s, {"id": str(i), "address": f"192.168.{100 + i}.2/24"})
+    with pytest.raises(ValueError):
+        vlan.validate(s, {"id": "99", "address": "192.168.99.2/24"})
+    assert vlan.ovpn_slice("10.66.67.0/24", 8) == __import__("ipaddress").ip_network("10.66.67.240/28")

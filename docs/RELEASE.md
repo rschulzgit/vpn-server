@@ -10,5 +10,8 @@
 Protokolle: WireGuard (QR-Code), OpenVPN UDP/TCP, IKEv2/IPsec (Zertifikat, PSK, EAP – Android ohne App), L2TP/IPsec,
 Cisco IPsec (IKEv1 XAuth), SSTP, OpenConnect/AnyConnect, PPTP (optional, unsicher).
 
+Optional: Anmeldung über einen vorhandenen RADIUS-Server (z. B. Windows NPS) und VLAN-Zuweisung
+wie beim WLAN-Controller (Tunnel-Private-Group-Id), VLAN pro Client für WireGuard/OpenVPN.
+
 Dieses ISO wurde automatisch in einer virtuellen Maschine installiert und mit echten Clients für alle Protokolle getestet.
 Ausführliche Anleitung: siehe README im Repository.

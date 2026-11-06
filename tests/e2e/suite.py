@@ -914,15 +914,19 @@ def ppp_iface(ns: str = NS) -> str:
     return m.group(1) if m else ""
 
 
+VLAN_NETS = ("192.168.10.0/24", "192.168.20.0/24")
+
+
 def route_via(iface: str, ns: str = NS) -> None:
-    for net in ("10.0.2.0/24", f"{INTERNET_IP}/32", f"{DNS}/32"):
+    for net in ("10.0.2.0/24", f"{INTERNET_IP}/32", f"{DNS}/32", *VLAN_NETS):
         nsx(f"ip route replace {net} dev {iface}", ns)
 
 
 L2TP_LAST_END = [0.0]
 
 
-def t_l2tp():
+def l2tp_connect(user: str, password: str) -> str:
+    """Baut L2TP/IPsec auf und liefert die PPP-Schnittstelle."""
     # Nach dem Trennen haelt der Server den Tunnel noch einen vollen
     # Wiederholungszyklus vor (RFC 2661, ca. 31 s). Ein neuer Verbindungsaufbau
     # vom selben Absenderport (1701) wird in dieser Zeit verworfen; echte
@@ -956,16 +960,17 @@ mtu 1280
 mru 1280
 noipdefault
 nodefaultroute
-name e2e
-password {CPW_CURRENT}
+name {user}
+password {password}
 connect-delay 2000
 """, 0o600)
     bg(f"xl2tpd -D -c {WORK}/xl2tpd.conf -p {WORK}/xl2tpd.pid -C {WORK}/l2tp-control", "xl2tpd.log")
     check(wait_until(lambda: ppp_iface(), 40), "Keine PPP-Verbindung: " + tail("xl2tpd.log", 20))
     route_via(ppp_iface())
-    errors = tunnel_checks()
-    check(not errors, ", ".join(errors))
-    check(session_seen("e2e", "L2TP"), "Nicht als L2TP in der Statusanzeige")
+    return ppp_iface()
+
+
+def l2tp_disconnect() -> None:
     # Sauber trennen wie ein echter Client (StopCCN), dann IPsec beenden
     sh(f"timeout 5 bash -c \"echo 'd vpn' > {WORK}/l2tp-control\"")
     time.sleep(4)
@@ -974,13 +979,21 @@ connect-delay 2000
     L2TP_LAST_END[0] = time.time()
 
 
+def t_l2tp():
+    l2tp_connect("e2e", CPW_CURRENT)
+    errors = tunnel_checks()
+    check(not errors, ", ".join(errors))
+    check(session_seen("e2e", "L2TP"), "Nicht als L2TP in der Statusanzeige")
+    l2tp_disconnect()
+
+
 # =============================================================================
 # 6. SSTP und OpenConnect
 # =============================================================================
 
-def sstp_up(password: str, ns: str = NS, log: str = "sstp.log") -> subprocess.Popen:
+def sstp_up(password: str, ns: str = NS, log: str = "sstp.log", user: str = "e2e") -> subprocess.Popen:
     ca = write("ca.crt", PROFILES[("e2e", "ca")], 0o644)
-    return bg(f"sstpc --log-stderr --log-level 3 --ca-cert {ca} --user e2e --password '{password}' "
+    return bg(f"sstpc --log-stderr --log-level 3 --ca-cert {ca} --user {user} --password '{password}' "
               f"{VPN_HOST} require-mschap-v2 refuse-eap refuse-pap refuse-chap refuse-mschap noauth "
               f"noipdefault nodefaultroute noccp nobsdcomp nodeflate", log, ns)
 
@@ -1000,18 +1013,18 @@ def oc_script() -> str:
 if [ "$reason" = connect ]; then
   ip link set dev "$TUNDEV" up mtu "${{INTERNAL_IP4_MTU:-1300}}"
   ip addr add "$INTERNAL_IP4_ADDRESS/32" dev "$TUNDEV"
-  for n in 10.0.2.0/24 {INTERNET_IP}/32 {DNS}/32; do ip route replace $n dev "$TUNDEV"; done
+  for n in 10.0.2.0/24 {INTERNET_IP}/32 {DNS}/32 {" ".join(VLAN_NETS)}; do ip route replace $n dev "$TUNDEV"; done
   echo "DNS=$INTERNAL_IP4_DNS" > {WORK}/oc-env.txt
 fi
 exit 0
 """, 0o755)
 
 
-def oc_up(log: str, extra: str = "") -> subprocess.Popen:
+def oc_up(log: str, extra: str = "", user: str = "e2e", password: str | None = None) -> subprocess.Popen:
     pin = cred()["openconnect_pin"]
     script = oc_script()
-    pwfile = write("oc-pw.txt", CPW_CURRENT + "\n")
-    return bg(f"openconnect --servercert {pin} -u e2e --passwd-on-stdin --script {script} "
+    pwfile = write("oc-pw.txt", (password or CPW_CURRENT) + "\n")
+    return bg(f"openconnect --servercert {pin} -u {user} --passwd-on-stdin --script {script} "
               f"{extra} {VPN_HOST}:4443 < {pwfile}", log)
 
 
@@ -1235,6 +1248,339 @@ def t_firewall():
     check("tcp dport 8443 ip saddr @private_nets accept" in out, "Weboberfläche nicht beschränkt")
 
 
+# =============================================================================
+# 8. RADIUS-Anmeldung und VLAN-Zuweisung (wie beim WLAN-Controller)
+# =============================================================================
+#
+# Externer RADIUS-Server: FreeRADIUS auf dem Test-Host (fuer den Server 10.0.2.2)
+#   radvlan10 -> VLAN 10 (dazu ein langes Class- und ein Framed-IP-Attribut, die
+#                der VPN-Server ignorieren muss), radnovlan -> kein VLAN,
+#                radvlan99 -> nicht eingerichtetes VLAN, radwrong -> anderes Passwort
+# VLAN-Trunk: zweite Netzwerkkarte des Servers; VLAN 10 (192.168.10.0/24, Gateway .1)
+#   und VLAN 20 (192.168.20.0/24, ohne Gateway) mit je einem HTTP-Dienst auf .1:8080,
+#   der die Absenderadresse zurueckgibt.
+
+RAD = {"radvlan10": "Radius-Pass10", "radnovlan": "Radius-Pass00", "radvlan99": "Radius-Pass99",
+       "radwrong": "Falsch-Pass1"}
+VLAN_DEV = "vlan20dev"
+VLAN_DEV_PW = "Vlan20-Geraet1"
+
+
+def vlan_peer(vid: int, ns: str = NS) -> str:
+    """Absenderadresse, mit der ein Dienst im VLAN den Client sieht ("" = nicht erreichbar)."""
+    r = nsx(f"curl -s --noproxy '*' --max-time 6 http://192.168.{vid}.1:8080/", ns, timeout=15)
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+def vlan_checks(vid: int, other: int, ns: str = NS) -> list[str]:
+    errors = []
+    if not wait_until(lambda: vlan_peer(vid, ns) == f"192.168.{vid}.2", 20, 2):
+        errors.append(f"VLAN {vid} nicht erreichbar (Antwort: '{vlan_peer(vid, ns)}')")
+    if vlan_peer(other, ns):
+        errors.append(f"VLAN {other} ist erreichbar (Isolation verletzt)")
+    if lan_ok(ns):
+        errors.append("Heimnetz des Servers ist erreichbar (Isolation verletzt)")
+    return errors
+
+
+def vlan_session(user: str, vid: int) -> bool:
+    def probe():
+        for sess in W.status()["sessions"]:
+            if sess.get("user") == user and str(sess.get("vlan", "")).startswith(f"{vid} "):
+                return True
+        return False
+    return wait_until(probe, 25, 3)
+
+
+def write_radius_swanctl() -> None:
+    c = cred()
+    conns, secrets = [], []
+    for key, user in (("rad-eap10", "radvlan10"), ("rad-eapnone", "radnovlan"),
+                      ("rad-eap99", "radvlan99"), ("rad-eapwrong", "radwrong")):
+        conns.append(f"""  {key} {{
+    version = 2
+    remote_addrs = {VPN_HOST}
+    vips = 0.0.0.0
+    proposals = aes256-sha256-modp2048,aes256gcm16-prfsha384-ecp384
+    local {{
+      auth = eap-mschapv2
+      eap_id = {user}
+    }}
+    remote {{
+      auth = pubkey
+      id = {VPN_HOST}
+    }}
+    children {{
+      {key} {{
+        remote_ts = 0.0.0.0/0
+        esp_proposals = aes256gcm16,aes256-sha256
+      }}
+    }}
+  }}""")
+        secrets.append(f"""  eap-{key} {{
+    id = {user}
+    secret = "{RAD[user]}"
+  }}""")
+    conns.append(f"""  rad-xauth10 {{
+    version = 1
+    remote_addrs = {VPN_HOST}
+    vips = 0.0.0.0
+    proposals = aes256-sha256-modp2048,aes256-sha1-modp1024
+    local {{
+      auth = psk
+    }}
+    local-2 {{
+      auth = xauth
+      xauth_id = radvlan10
+    }}
+    remote {{
+      auth = psk
+    }}
+    children {{
+      rad-xauth10 {{
+        remote_ts = 0.0.0.0/0
+        esp_proposals = aes256-sha1,aes256-sha256
+      }}
+    }}
+  }}""")
+    secrets.append("""  xauth-rad10 {
+    id = radvlan10
+    secret = "Radius-Pass10"
+  }""")
+    with open("/etc/swanctl/conf.d/e2e-radius.conf", "w") as fh:
+        fh.write("connections {\n" + "\n".join(conns) + "\n}\nsecrets {\n" + "\n".join(secrets) + "\n}\n")
+    del c
+
+
+def swan_vip(key: str) -> str:
+    sas = nsx(f"swanctl --list-sas --ike {key}").stdout
+    m = re.search(r"local .*\[(10\.\d+\.\d+\.\d+)\]", sas)
+    return m.group(1) if m else ""
+
+
+def in_net(ip: str, net: str) -> bool:
+    import ipaddress
+    try:
+        return ipaddress.ip_address(ip) in ipaddress.ip_network(net)
+    except ValueError:
+        return False
+
+
+@test("RADIUS / VLAN", "VLANs anlegen: Trunk mit VLAN 10 (mit Gateway) und VLAN 20 (ohne)")
+def t_vlan_setup():
+    r = remote("ip -o link | grep -i '52:54:00:00:99:01' | awk -F': ' '{print $2}'")
+    nic = r.stdout.strip().split("@")[0]
+    check(nic, f"Trunk-Netzwerkkarte nicht gefunden: {r.stdout} {r.stderr[-200:]}")
+    _c, _u, raw = W.req("/settings")
+    check(f'value="{nic}"' in raw.decode(errors="replace"), f"{nic} nicht in der Schnittstellenauswahl")
+    W.settings("vlan-save", {"id": "10", "name": "Gäste", "parent": nic, "address": "192.168.10.2/24",
+                             "gateway": "192.168.10.1", "dns": "192.168.10.1"})
+    W.settings("vlan-save", {"id": "20", "name": "IoT", "parent": nic, "address": "192.168.20.2/24",
+                             "gateway": ""})
+    st = remote("cat /etc/vpn-server/state.json").stdout
+    check('"vpn_net": "10.67.1.0/24"' in st and '"vpn_net": "10.67.2.0/24"' in st,
+          "VLANs nicht gespeichert")
+
+    def links_up():
+        page = W.req("/settings")[2].decode(errors="replace")
+        return page.count(">verbunden<") >= 2
+    check(wait_until(links_up, 30, 3), "VLAN-Schnittstellen nicht verbunden")
+    out = remote("ip -d link show vlan10; ip rule; ip route show table 1001; ip route show table 1002").stdout
+    check("vlan protocol 802.1Q id 10" in out, f"vlan10 fehlt: {out[:300]}")
+    check("lookup 1001" in out and "default via 192.168.10.1 dev vlan10" in out, f"Routing VLAN 10: {out[-600:]}")
+    check("unreachable default" in out, "VLAN 20 ohne Gateway darf nicht ins Internet routen")
+    check(remote("ping -c1 -W2 192.168.10.1").returncode == 0, "Server erreicht VLAN 10 nicht")
+    return f"(Trunk {nic})"
+
+
+@test("RADIUS / VLAN", "Externen RADIUS-Server eintragen, Verbindung testen (VLAN-Attribut erkannt)")
+def t_radius_setup():
+    W.settings("radius", {"enabled": "1", "host1": "10.0.2.2", "auth_port1": "1812",
+                          "acct_port1": "1813", "secret1": "testing123", "nas_identifier": "vpn-e2e",
+                          "local_users": "1", "accounting": "1", "unknown_vlan": "reject",
+                          "no_vlan": "default"})
+    _c, _u, raw = W.req("/settings", {"section": "radius-test", "test_user": "radvlan10",
+                                      "test_password": RAD["radvlan10"], "test_method": "pap"})
+    page = raw.decode(errors="replace")
+    check("Anmeldung erfolgreich" in page and "VLAN 10 (Gäste)" in page,
+          "Verbindungstest: " + (re.findall(r'<div class="(?:infobox|warnbox)">([^<]+)', page) or ["?"])[-1])
+    _c, _u, raw = W.req("/settings", {"section": "radius-test", "test_user": "radvlan99",
+                                      "test_password": RAD["radvlan99"], "test_method": "pap"})
+    check("abgelehnt" in raw.decode(errors="replace"), "Hinweis auf nicht eingerichtetes VLAN fehlt")
+
+    def radius_active():
+        return any(u["unit"] == "vpn-radius.service" and u["active"] == "active"
+                   for u in W.status()["units"])
+    check(wait_until(radius_active, 30, 3), "vpn-radius.service nicht aktiv")
+
+
+@test("RADIUS / VLAN", "Lokaler Client in VLAN 20: WireGuard (feste Adresse aus dem VLAN-Bereich)")
+def t_vlan_wg():
+    flashes = W.req("/clients", {"name": VLAN_DEV, "password": VLAN_DEV_PW, "tunnel": "full",
+                                 "vlan": "20"})[2]
+    del flashes
+    conf = W.download(VLAN_DEV, "wireguard").decode()
+    check("Address = 10.67.2.2/32" in conf, f"Falsche Adresse: {conf.splitlines()[3:5]}")
+    r = wg_up(conf)
+    check(r.returncode == 0, f"wg-quick: {r.stderr[-300:]}")
+    errors = vlan_checks(20, 10)
+    check(not errors, ", ".join(errors))
+    check(not internet_ok(), "VLAN 20 (ohne Gateway) erreicht das Internet")
+    check(vlan_session(VLAN_DEV, 20), "VLAN nicht in der Statusanzeige")
+    return "(10.67.2.2 -> VLAN 20, NAT auf 192.168.20.2)"
+
+
+@test("RADIUS / VLAN", "Lokaler Client in VLAN 20: OpenVPN (feste Adresse je VLAN)")
+def t_vlan_ovpn():
+    ovpn_up(W.download(VLAN_DEV, "openvpn"), "ovpn-vlan")
+    check(wait_until(lambda: ovpn_ready("ovpn-vlan.log"), 40), "Keine Verbindung: " + tail("ovpn-vlan.log", 15))
+    out = nsx("ip -o -4 addr show").stdout
+    m = re.search(r"inet (10\.66\.6[78]\.\d+)/", out)
+    check(m and (in_net(m.group(1), "10.66.67.144/28") or in_net(m.group(1), "10.66.68.144/28")),
+          f"Adresse nicht aus dem VLAN-20-Block: {out}")
+    errors = vlan_checks(20, 10)
+    check(not errors, ", ".join(errors))
+    return f"({m.group(1)})"
+
+
+@test("RADIUS / VLAN", "Lokaler Client in VLAN 20: SSTP mit Passwort (über den lokalen RADIUS-Dienst)")
+def t_vlan_sstp_local():
+    sstp_up(VLAN_DEV_PW, user=VLAN_DEV, log="sstp-vlan.log")
+    check(wait_until(lambda: ppp_iface(), 40), "Keine PPP-Verbindung: " + tail("sstp-vlan.log", 20))
+    ip = re.search(r"inet (\S+?)/|inet (\S+) peer", sh(f"ip -n {NS} -o -4 addr show {ppp_iface()}").stdout)
+    vip = (ip.group(1) or ip.group(2)) if ip else ""
+    check(in_net(vip, "10.67.2.64/27"), f"PPP-Adresse nicht aus VLAN 20: {vip}")
+    route_via(ppp_iface())
+    errors = vlan_checks(20, 10)
+    check(not errors, ", ".join(errors))
+    return f"({vip})"
+
+
+@test("RADIUS / VLAN", "RADIUS-Benutzer mit VLAN 10: IKEv2 EAP-MSCHAPv2 (Windows/Android/iOS)")
+def t_rad_eap():
+    write_radius_swanctl()
+    r = nsx("swanctl --load-all --noprompt")
+    check("failed" not in r.stdout + r.stderr, f"swanctl: {r.stdout[-400:]}")
+    write("ipsec-resolv.conf", "")
+    write("resolvconf.log", "")
+    r = nsx("timeout 45 swanctl --initiate --child rad-eap10", timeout=60)
+    check(r.returncode == 0, "Verbindung fehlgeschlagen: " + (r.stdout + r.stderr)[-500:])
+    vip = swan_vip("rad-eap10")
+    check(in_net(vip, "10.67.1.32/27"), f"Adresse nicht aus VLAN 10: {vip}")
+    errors = vlan_checks(10, 20)
+    check(not errors, ", ".join(errors))
+    check(not internet_ok(), "Internet läuft nicht über das VLAN-Gateway")
+    check("192.168.10.1" in read("ipsec-resolv.conf") + read("resolvconf.log"), "VLAN-DNS nicht übermittelt")
+    check(vlan_session("radvlan10", 10), "Nicht mit VLAN 10 in der Statusanzeige")
+    check(any(s.get("user") == "radvlan10" and s.get("radius") for s in W.status()["sessions"]),
+          "Nicht als RADIUS-Benutzer gekennzeichnet")
+    nsx("swanctl --terminate --ike rad-eap10 --force")
+    return f"(VIP {vip})"
+
+
+@test("RADIUS / VLAN", "RADIUS-Benutzer mit VLAN 10: L2TP/IPsec (MSCHAPv2)")
+def t_rad_l2tp():
+    iface = l2tp_connect("radvlan10", RAD["radvlan10"])
+    out = sh(f"ip -n {NS} -o -4 addr show {iface}").stdout
+    m = re.search(r"inet (\d+\.\d+\.\d+\.\d+)", out)
+    check(m and in_net(m.group(1), "10.67.1.64/27"), f"PPP-Adresse nicht aus VLAN 10: {out}")
+    errors = vlan_checks(10, 20)
+    l2tp_disconnect()
+    check(not errors, ", ".join(errors))
+    return f"({m.group(1)})"
+
+
+@test("RADIUS / VLAN", "RADIUS-Benutzer mit VLAN 10: SSTP")
+def t_rad_sstp():
+    sstp_up(RAD["radvlan10"], user="radvlan10", log="sstp-rad.log")
+    check(wait_until(lambda: ppp_iface(), 40), "Keine PPP-Verbindung: " + tail("sstp-rad.log", 20))
+    out = sh(f"ip -n {NS} -o -4 addr show {ppp_iface()}").stdout
+    m = re.search(r"inet (\d+\.\d+\.\d+\.\d+)", out)
+    check(m and in_net(m.group(1), "10.67.1.64/27"), f"PPP-Adresse nicht aus VLAN 10: {out}")
+    route_via(ppp_iface())
+    errors = vlan_checks(10, 20)
+    check(not errors, ", ".join(errors))
+    check(vlan_session("radvlan10", 10), "Nicht mit VLAN 10 in der Statusanzeige")
+
+
+@test("RADIUS / VLAN", "RADIUS-Benutzer mit VLAN 10: OpenConnect / AnyConnect")
+def t_rad_oc():
+    write("oc-env.txt", "")
+    oc_up("oc-rad.log", user="radvlan10", password=RAD["radvlan10"])
+    check(wait_until(lambda: "CSTP connected" in read("oc-rad.log"), 30), "Keine Verbindung: " + tail("oc-rad.log"))
+    m = re.search(r"Configured as (\d+\.\d+\.\d+\.\d+)", read("oc-rad.log"))
+    check(m and in_net(m.group(1), "10.67.1.96/27"), f"Adresse nicht aus VLAN 10: {m.group(1) if m else '?'}")
+    errors = vlan_checks(10, 20)
+    check(not errors, ", ".join(errors))
+    check("192.168.10.1" in read("oc-env.txt"), "VLAN-DNS nicht übermittelt")
+    return f"({m.group(1)})"
+
+
+@test("RADIUS / VLAN", "RADIUS-Benutzer mit VLAN 10: Cisco IPsec (IKEv1 XAuth)")
+def t_rad_xauth():
+    r = nsx("timeout 45 swanctl --initiate --child rad-xauth10", timeout=60)
+    check(r.returncode == 0, "Verbindung fehlgeschlagen: " + (r.stdout + r.stderr)[-500:])
+    vip = swan_vip("rad-xauth10")
+    check(in_net(vip, "10.67.1.32/27"), f"Adresse nicht aus VLAN 10: {vip}")
+    errors = vlan_checks(10, 20)
+    check(not errors, ", ".join(errors))
+    nsx("swanctl --terminate --ike rad-xauth10 --force")
+    return f"(VIP {vip})"
+
+
+@test("RADIUS / VLAN", "RADIUS-Benutzer ohne VLAN: Standardnetz mit Heimnetz-Zugriff, VLANs gesperrt")
+def t_rad_novlan():
+    r = nsx("timeout 45 swanctl --initiate --child rad-eapnone", timeout=60)
+    check(r.returncode == 0, "Verbindung fehlgeschlagen: " + (r.stdout + r.stderr)[-500:])
+    vip = swan_vip("rad-eapnone")
+    check(in_net(vip, "10.66.69.0/24"), f"Adresse nicht aus dem Standardnetz: {vip}")
+    check(wait_until(lan_ok, 20, 2), "Heimnetz nicht erreichbar")
+    check(not vlan_peer(10) and not vlan_peer(20), "VLAN aus dem Standardnetz erreichbar")
+    nsx("swanctl --terminate --ike rad-eapnone --force")
+    return f"(VIP {vip})"
+
+
+@test("RADIUS / VLAN", "Abgelehnt: nicht eingerichtetes VLAN 99, falsches Passwort, gesperrter Client")
+def t_rad_reject():
+    for key in ("rad-eap99", "rad-eapwrong"):
+        r = nsx(f"timeout 45 swanctl --initiate --child {key}", timeout=60)
+        check(r.returncode != 0, f"{key}: Anmeldung wurde fälschlich angenommen")
+    W.client_action(VLAN_DEV, "toggle")
+    sstp_up(VLAN_DEV_PW, user=VLAN_DEV, log="sstp-locked.log")
+    time.sleep(12)
+    check(not ppp_iface(), "Gesperrter Client konnte sich per SSTP anmelden")
+    cleanup_clients()
+    W.client_action(VLAN_DEV, "toggle")
+    log = remote("journalctl -u vpn-radius --no-pager -n 200").stdout
+    check("radvlan99" in log and "Login incorrect" in log, "Ablehnung nicht im RADIUS-Protokoll")
+
+
+@test("RADIUS / VLAN", "Accounting: Start/Stop erreichen den externen RADIUS-Server")
+def t_rad_accounting():
+    detail = sh("cat /var/log/freeradius/radacct/127.0.0.1/detail-* 2>/dev/null").stdout
+    check("radvlan10" in detail, "Kein Accounting für radvlan10 beim RADIUS-Server")
+    check("Acct-Status-Type = Start" in detail and "Acct-Status-Type = Stop" in detail,
+          "Start/Stop fehlen")
+    check('NAS-Identifier = "vpn-e2e"' in detail, "NAS-Identifier nicht übernommen")
+    check(VLAN_DEV not in detail, "Lokale Benutzer werden an den RADIUS-Server gemeldet")
+
+
+@test("RADIUS / VLAN", "Profile für RADIUS-Benutzer: ohne gespeicherte Zugangsdaten")
+def t_rad_profiles():
+    code, _u, raw = W.req("/radius-profile")
+    check(code == 200 and "RADIUS-Benutzer" in raw.decode(errors="replace"), f"Seite: {code}")
+    code, _u, mc = W.req("/radius-profile/dl/mobileconfig-eap")
+    check(code == 200, f"mobileconfig: {code}")
+    plist = plistlib.loads(mc)
+    ike = [p for p in plist["PayloadContent"] if p["PayloadType"] == "com.apple.vpn.managed"][0]["IKEv2"]
+    check("AuthPassword" not in ike and "AuthName" not in ike and ike["ExtendedAuthEnabled"] == 1,
+          "mobileconfig enthält Zugangsdaten")
+    code, _u, sw = W.req("/radius-profile/dl/sswan-eap")
+    check(code == 200 and "eap_id" not in json.loads(sw)["local"], ".sswan enthält einen Benutzernamen")
+    code, _u, cmd = W.req("/radius-profile/dl/win-ikev2-eap")
+    check(code == 200 and b"Passwort:" not in cmd and b"Add-VpnConnection" in cmd, "Windows-Skript")
+
+
 @test("Funktion", "Neustart: alle Dienste starten automatisch, Verbindungen funktionieren")
 def t_reboot():
     remote("systemd-run --on-active=2 systemctl reboot", timeout=30)
@@ -1256,6 +1602,15 @@ def t_reboot():
     cleanup_clients()
     r = nsx("timeout 45 swanctl --initiate --child android-psk", timeout=60)
     check(r.returncode == 0, "IKEv2 nach Neustart")
+
+
+@test("RADIUS / VLAN", "Nach dem Neustart: VLAN-Schnittstellen und RADIUS-Anmeldung funktionieren")
+def t_rad_after_reboot():
+    oc_up("oc-reboot.log", user="radvlan10", password=RAD["radvlan10"])
+    check(wait_until(lambda: "CSTP connected" in read("oc-reboot.log"), 40),
+          "Keine Verbindung: " + tail("oc-reboot.log"))
+    errors = vlan_checks(10, 20)
+    check(not errors, ", ".join(errors))
 
 
 # =============================================================================

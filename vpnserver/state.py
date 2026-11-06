@@ -90,6 +90,18 @@ def default_state() -> dict:
             "ppp": {"subnet": "10.66.70.0/24"},
             "openconnect": {"enabled": True, "port": 4443, "subnet": "10.66.71.0/24"},
         },
+        "radius": {
+            # Externer RADIUS-Server (z. B. Windows NPS, FreeRADIUS, UniFi)
+            "enabled": False,
+            "servers": [],          # [{"host", "auth_port", "acct_port", "secret"}]
+            "nas_identifier": "vpn-server",
+            "accounting": True,
+            "local_users": True,    # lokale Benutzer zusaetzlich (werden zuerst geprueft)
+            "unknown_vlan": "reject",   # VLAN-ID ohne eingerichtetes VLAN: reject | default
+            "no_vlan": "default",       # RADIUS-Benutzer ohne VLAN-Attribut: default | reject
+            "local_secret": "",     # Geheimnis zwischen den VPN-Diensten und dem lokalen RADIUS
+        },
+        "vlans": {},
         "clients": {},
         "shares": {},
     }
@@ -100,7 +112,8 @@ def _merge_defaults(state: dict, defaults: dict) -> dict:
     for key, value in defaults.items():
         if key not in state:
             state[key] = copy.deepcopy(value)
-        elif isinstance(value, dict) and isinstance(state[key], dict) and key not in ("clients", "shares"):
+        elif isinstance(value, dict) and isinstance(state[key], dict) and \
+                key not in ("clients", "shares", "vlans"):
             _merge_defaults(state[key], value)
     return state
 
@@ -190,19 +203,28 @@ def ensure_server_keys(state: dict) -> None:
         wg["privkey"], wg["pubkey"] = wg_keypair()
     if not state["proto"].get("ipsec_psk"):
         state["proto"]["ipsec_psk"] = util.gen_password(24)
+    if not state["radius"].get("local_secret"):
+        state["radius"]["local_secret"] = util.gen_password(32)
 
 
 # --------------------------------------------------------------------------
 # Clients
 # --------------------------------------------------------------------------
 
-def _wg_allocate_ip(state: dict) -> str:
-    net = ipaddress.ip_network(state["proto"]["wireguard"]["subnet"])
+def _wg_allocate_ip(state: dict, client: dict | None = None) -> str:
+    from . import vlan
+    v = vlan.client_vlan(state, client) if client else None
+    if v:
+        net = vlan.proto_net(v, "wireguard")
+    else:
+        net = ipaddress.ip_network(state["proto"]["wireguard"]["subnet"])
     used = {c["wg"]["ip"] for c in state["clients"].values() if c.get("wg", {}).get("ip")}
     hosts = list(net.hosts())
-    for host in hosts[1:]:  # .1 ist der Server
+    for host in hosts[1:]:  # .1 ist der Server bzw. reserviert
         if str(host) not in used:
             return str(host)
+    if v:
+        raise ValueError(f"Keine freie WireGuard-Adresse mehr im Bereich von VLAN {v['id']}.")
     raise ValueError("Keine freie WireGuard-Adresse mehr im Subnetz.")
 
 
@@ -216,11 +238,43 @@ def renumber_wireguard(state: dict) -> None:
     for client in state["clients"].values():
         client["wg"]["ip"] = ""
     for client in state["clients"].values():
-        client["wg"]["ip"] = _wg_allocate_ip(state)
+        client["wg"]["ip"] = _wg_allocate_ip(state, client)
+
+
+def renumber_vlan_clients(state: dict, vid) -> None:
+    """Vergibt die WireGuard-Adressen der Clients eines VLANs neu."""
+    members = [c for c in state["clients"].values() if str(c.get("vlan", "")) == str(vid)]
+    for client in members:
+        client["wg"]["ip"] = ""
+    for client in members:
+        client["wg"]["ip"] = _wg_allocate_ip(state, client)
+
+
+def set_client_vlan(state: dict, name: str, vid) -> bool:
+    """Ordnet einen Client einem VLAN zu ("" = Standardnetz). True bei Aenderung."""
+    from . import vlan
+    client = state["clients"][name]
+    vid = str(vid or "")
+    if vid and vid not in state.get("vlans", {}):
+        raise ValueError(f"VLAN {vid} ist nicht eingerichtet.")
+    if str(client.get("vlan", "")) == vid:
+        return False
+    if vid:
+        v = state["vlans"][vid]
+        members = len(vlan.vlan_clients(state, v)) + 1
+        if members > vlan.wg_capacity(v):
+            raise ValueError(f"VLAN {vid} ist voll (WireGuard-Bereich {vlan.proto_net(v, 'wireguard')}).")
+        if enabled(state, "openvpn") and members > vlan.ovpn_capacity(state):
+            raise ValueError(f"VLAN {vid} ist voll: OpenVPN bietet je VLAN {vlan.ovpn_capacity(state)} "
+                             "feste Adressen (größeres OpenVPN-Subnetz wählen).")
+    client["vlan"] = vid
+    client["wg"]["ip"] = ""
+    client["wg"]["ip"] = _wg_allocate_ip(state, client)
+    return True
 
 
 def new_client(state: dict, name: str, password: str | None = None, note: str = "",
-               full_tunnel: bool = True) -> dict:
+               full_tunnel: bool = True, vlan: str = "") -> dict:
     if not util.valid_client_name(name):
         raise ValueError("Ungültiger Name: erlaubt sind a-z, 0-9 und '-' (max. 31 Zeichen), "
                          "beginnend mit Buchstabe oder Ziffer.")
@@ -241,9 +295,16 @@ def new_client(state: dict, name: str, password: str | None = None, note: str = 
         "psk": util.gen_password(24),
         "p12_password": util.gen_password(12),
         "cert_serial": "",
+        "vlan": "",
     }
     state["clients"][name] = client
-    client["wg"]["ip"] = _wg_allocate_ip(state)
+    client["wg"]["ip"] = _wg_allocate_ip(state, client)
+    if vlan:
+        try:
+            set_client_vlan(state, name, vlan)
+        except ValueError:
+            del state["clients"][name]
+            raise
     return client
 
 
@@ -272,6 +333,7 @@ def public_host(state: dict) -> str:
 
 
 def vpn_subnets(state: dict) -> list[str]:
+    """Die Standard-Adressbereiche der Protokolle (ohne VLAN-Bereiche)."""
     pr = state["proto"]
     return [pr["wireguard"]["subnet"], pr["openvpn"]["udp_subnet"],
             pr["openvpn"]["tcp_subnet"], pr["ikev2"]["subnet"], pr["ppp"]["subnet"],

@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime as dt
 import hmac
 import ipaddress
+import re
 import secrets
 import threading
 import time
@@ -12,7 +13,7 @@ import time
 from flask import (Flask, Response, abort, flash, g, jsonify, redirect, render_template,
                    request, session, url_for)
 
-from .. import __version__, apply as ap, pki, profiles, state as st, status, system, util
+from .. import __version__, apply as ap, pki, profiles, state as st, status, system, util, vlan
 from ..state import PROTOCOL_LABELS, PROTOCOLS
 
 PUBLIC_ENDPOINTS = {"login", "static", "share", "share_download", "ca_download", "health"}
@@ -292,9 +293,10 @@ def create_app() -> Flask:
             pw = request.form.get("password", "").strip()
             note = request.form.get("note", "").strip()[:100]
             full = request.form.get("tunnel", "full") == "full"
+            vid = request.form.get("vlan", "").strip()
             try:
                 modify(lambda s: st.new_client(s, name, password=pw or None, note=note,
-                                               full_tunnel=full))
+                                               full_tunnel=full, vlan=vid))
             except ValueError as exc:
                 flash(str(exc), "error")
                 return redirect(url_for("clients"))
@@ -302,7 +304,8 @@ def create_app() -> Flask:
             return redirect(url_for("client", name=name))
         state = get_state()
         online = {s["user"] for s in status.all_sessions(state)}
-        return render_template("clients.html", state=state, online=online)
+        return render_template("clients.html", state=state, online=online,
+                               vlans=vlan.vlans(state))
 
     def _get_client(state: dict, name: str) -> dict:
         client = state["clients"].get(name)
@@ -323,7 +326,8 @@ def create_app() -> Flask:
                                wg_qr=profiles.qr_svg(profiles.wireguard_conf(state, c))
                                if st.enabled(state, "wireguard") and c.get("enabled", True) else None,
                                dl=lambda kind: url_for("download", name=name, kind=kind),
-                               info=_client_info(state), public=False)
+                               info=_client_info(state), public=False, vlans=vlan.vlans(state),
+                               client_vlan=vlan.client_vlan(state, c))
 
     def _client_info(state: dict) -> dict:
         return {
@@ -391,9 +395,25 @@ def create_app() -> Flask:
         elif action == "update":
             note = request.form.get("note", "").strip()[:100]
             full = request.form.get("tunnel", "full") == "full"
-            modify(lambda s: s["clients"][name].update(note=note, full_tunnel=full))
-            flash("Gespeichert. WireGuard- und OpenVPN-Profile bitte neu importieren, falls die "
-                  "Tunnel-Art geändert wurde.", "ok")
+            vid = request.form.get("vlan", None)
+
+            def do(s):
+                s["clients"][name].update(note=note, full_tunnel=full)
+                if vid is not None:
+                    return st.set_client_vlan(s, name, vid.strip())
+                return False
+            try:
+                vlan_changed = modify(do)
+            except ValueError as exc:
+                flash(str(exc), "error")
+                return redirect(url_for("client", name=name))
+            if vlan_changed:
+                ap.disconnect_client(name)
+                flash("Gespeichert. Das VLAN wurde geändert: bestehende Verbindungen wurden "
+                      "getrennt, das WireGuard-Profil (neue Adresse) muss neu importiert werden.", "ok")
+            else:
+                flash("Gespeichert. WireGuard- und OpenVPN-Profile bitte neu importieren, falls die "
+                      "Tunnel-Art geändert wurde.", "ok")
         elif action == "share":
             def do(s):
                 token = util.gen_token(24)
@@ -517,9 +537,19 @@ def create_app() -> Flask:
                 flash(str(exc), "error")
             return redirect(url_for("settings") + "#" + section)
         state = get_state()
+        edit = vlan.get(state, request.args.get("vlan", ""))
+        route = util.default_route_info()
         return render_template("settings.html", state=state, providers=system.DDNS_PROVIDERS,
                                le_info=system.le_cert_info(), le_active=pki.le_available(),
-                               cert=pki.server_cert_info(), ca_cn=pki.ca_common_name())
+                               cert=pki.server_cert_info(), ca_cn=pki.ca_common_name(),
+                               vlans=[dict(v, link=vlan.link_state(v) if not util.DRYRUN else
+                                           {"up": False, "text": "?"},
+                                           members=len(vlan.vlan_clients(state, v)),
+                                           ifname=vlan.ifname(v), parent_eff=vlan.parent_of(v))
+                                      for v in vlan.vlans(state)],
+                               vlan_edit=edit, interfaces=vlan.physical_interfaces(),
+                               default_dev=route.get("dev", ""), lan_ip=route.get("ip", ""),
+                               max_vlans=vlan.MAX_VLANS, radius_test=session.pop("radius_test", None))
 
     def _bool(form, key) -> bool:
         return form.get(key) in ("1", "on", "yes", "true")
@@ -623,6 +653,47 @@ def create_app() -> Flask:
                 raise ValueError("Der IPsec-PSK muss 12-64 Zeichen lang sein (A-Z a-z 0-9 - _ . : ! + = @ % ^ * ? , / ~).")
             modify(lambda s: s["proto"].update(ipsec_psk=psk))
             flash("IPsec-PSK gespeichert. L2TP- und Cisco-IPsec-Clients müssen angepasst werden.", "ok")
+        elif section == "radius":
+            _save_radius(form)
+        elif section == "radius-test":
+            ok, msg = system.radius_test(get_state(), form.get("test_user", "").strip(),
+                                         form.get("test_password", ""),
+                                         "mschap" if form.get("test_method") == "mschap" else "pap")
+            session["radius_test"] = {"ok": ok, "msg": msg}
+        elif section == "vlan-save":
+            old_id = form.get("old_id", "").strip() or None
+
+            def do(s):
+                v = vlan.validate(s, form, old_id)
+                if old_id and str(v["id"]) != str(old_id):
+                    for c in s["clients"].values():
+                        if str(c.get("vlan", "")) == str(old_id):
+                            c["vlan"] = str(v["id"])
+                    del s["vlans"][str(old_id)]
+                old = s["vlans"].get(str(v["id"]))
+                s["vlans"][str(v["id"])] = v
+                if old and old["vpn_net"] != v["vpn_net"]:
+                    st.renumber_vlan_clients(s, v["id"])
+                return v
+            v = modify(do)
+            flash(f"VLAN {v['id']} ({v['name']}) gespeichert.", "ok")
+        elif section == "vlan-delete":
+            vid = form.get("id", "").strip()
+
+            def do(s):
+                if vid not in s["vlans"]:
+                    raise ValueError("Unbekanntes VLAN.")
+                moved = [c["name"] for c in s["clients"].values() if str(c.get("vlan", "")) == vid]
+                for name in moved:
+                    st.set_client_vlan(s, name, "")
+                del s["vlans"][vid]
+                return moved
+            moved = modify(do)
+            for name in moved:
+                ap.disconnect_client(name)
+            flash(f"VLAN {vid} gelöscht." + (
+                f" {len(moved)} Client(s) sind jetzt im Standardnetz (WireGuard-Profile neu "
+                "importieren)." if moved else ""), "ok")
         elif section == "ddns":
             provider = form.get("provider", "none")
             if provider not in system.DDNS_PROVIDERS:
@@ -673,6 +744,70 @@ def create_app() -> Flask:
             flash(msg, "ok" if ok else "error")
         else:
             abort(400)
+
+    def _save_radius(form) -> None:
+        servers = []
+        for i in (1, 2):
+            host = form.get(f"host{i}", "").strip()
+            if not host:
+                continue
+            if not util.valid_host(host):
+                raise ValueError(f"Ungültige Adresse des RADIUS-Servers: {host}")
+            ports = []
+            for key, default in ((f"auth_port{i}", 1812), (f"acct_port{i}", 1813)):
+                value = form.get(key, "").strip() or str(default)
+                if not util.valid_port(value):
+                    raise ValueError(f"Ungültiger Port: {value}")
+                ports.append(int(value))
+            servers.append({"host": host, "auth_port": ports[0], "acct_port": ports[1],
+                            "secret": form.get(f"secret{i}", ""), "index": i})
+        nas_id = form.get("nas_identifier", "").strip() or "vpn-server"
+        if not util.HOSTNAME_RE.match(nas_id) and not re.match(r"^[\w.-]{1,64}$", nas_id):
+            raise ValueError("Ungültiger NAS-Identifier (Buchstaben, Ziffern, Punkt, Bindestrich).")
+
+        def do(s):
+            r = s["radius"]
+            old = {i + 1: srv for i, srv in enumerate(r.get("servers", []))}
+            out = []
+            for srv in servers:
+                secret = srv.pop("secret")
+                idx = srv.pop("index")
+                if not secret and old.get(idx, {}).get("host") == srv["host"]:
+                    secret = old[idx]["secret"]  # unveraendert lassen
+                if not secret:
+                    raise ValueError(f"Bitte das gemeinsame Geheimnis für {srv['host']} eingeben.")
+                if not re.match(r"^[\x20-\x7e]{1,128}$", secret) or any(ch in secret for ch in "'\"\\"):
+                    raise ValueError("Das Geheimnis darf keine Anführungszeichen, keinen Backslash "
+                                     "und keine Sonderzeichen außerhalb von ASCII enthalten.")
+                out.append(dict(srv, secret=secret))
+            enabled = _bool(form, "enabled")
+            if enabled and not out:
+                raise ValueError("Bitte mindestens einen RADIUS-Server eintragen.")
+            local_users = _bool(form, "local_users")
+            r.update(enabled=enabled, servers=out, nas_identifier=nas_id,
+                     accounting=_bool(form, "accounting"), local_users=local_users,
+                     unknown_vlan="default" if form.get("unknown_vlan") == "default" else "reject",
+                     no_vlan="reject" if form.get("no_vlan") == "reject" else "default")
+        modify(do)
+        flash("RADIUS-Einstellungen gespeichert.", "ok")
+
+    @app.route("/radius-profile")
+    def radius_profiles():
+        state = get_state()
+        return render_template("radius_profiles.html", state=state, info=_client_info(state),
+                               kinds=[k for k in profiles.RADIUS_DOWNLOADS
+                                      if not profiles.DOWNLOADS[k][2]
+                                      or st.enabled(state, profiles.DOWNLOADS[k][2])])
+
+    @app.route("/radius-profile/dl/<kind>")
+    def radius_download(kind: str):
+        state = get_state()
+        try:
+            fname, mime, data = profiles.generate_generic(state, kind)
+        except KeyError:
+            abort(404)
+        return Response(data, mimetype=mime,
+                        headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
     # ------------------------------------------------------------------
     # System

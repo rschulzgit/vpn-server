@@ -14,8 +14,8 @@ import zipfile
 import qrcode
 import qrcode.image.svg
 
-from . import pki, util
-from .state import dns_servers, enabled, public_host, vpn_subnets
+from . import pki, util, vlan
+from .state import enabled, public_host, vpn_subnets
 
 
 def _uuid(state: dict, *parts: str) -> str:
@@ -34,12 +34,28 @@ def lan_subnet() -> str | None:
         return None
 
 
-def split_routes(state: dict) -> list[str]:
+def split_routes(state: dict, client: dict | None = None) -> list[str]:
+    v = vlan.client_vlan(state, client) if client else None
+    if v:
+        # Client in einem VLAN: nur das VLAN-Netz (und dessen DNS-Server) durch den Tunnel
+        net = ipaddress.ip_interface(v["address"]).network
+        routes = [str(net)]
+        for d in vlan.vlan_dns(state, v):
+            try:
+                if ipaddress.ip_address(d).version == 4 and ipaddress.ip_address(d) not in net:
+                    routes.append(f"{d}/32")
+            except ValueError:
+                pass
+        return routes
     routes = list(vpn_subnets(state))
     lan = lan_subnet()
     if lan and state["server"].get("lan_access", True):
         routes.append(lan)
     return routes
+
+
+def client_dns(state: dict, client: dict | None) -> list[str]:
+    return vlan.vlan_dns(state, vlan.client_vlan(state, client) if client else None)
 
 
 def server_name(state: dict) -> str:
@@ -52,13 +68,13 @@ def server_name(state: dict) -> str:
 
 def wireguard_conf(state: dict, client: dict) -> str:
     wg = state["proto"]["wireguard"]
-    allowed = "0.0.0.0/0, ::/0" if client.get("full_tunnel", True) else ", ".join(split_routes(state))
+    allowed = "0.0.0.0/0, ::/0" if client.get("full_tunnel", True) else ", ".join(split_routes(state, client))
     lines = [
         "[Interface]",
         f"# {server_name(state)} - {client['name']}",
         f"PrivateKey = {client['wg']['privkey']}",
         f"Address = {client['wg']['ip']}/32",
-        f"DNS = {', '.join(dns_servers(state))}",
+        f"DNS = {', '.join(client_dns(state, client))}",
     ]
     if wg.get("mtu"):
         lines.append(f"MTU = {wg['mtu']}")
@@ -129,7 +145,7 @@ def openvpn_ovpn(state: dict, client: dict) -> str:
         lines.append("server-poll-timeout 10")
     if not client.get("full_tunnel", True):
         lines.append('pull-filter ignore "redirect-gateway"')
-        for r in split_routes(state):
+        for r in split_routes(state, client):
             net = ipaddress.ip_network(r)
             lines.append(f"route {net.network_address} {net.netmask}")
     lines += [
@@ -166,7 +182,7 @@ def sswan(state: dict, client: dict, kind: str) -> str:
     }
     if kind == "cert":
         profile["local"]["p12"] = base64.b64encode(client_p12(state, client)).decode()
-    else:
+    elif client["name"]:
         profile["local"]["eap_id"] = client["name"]
     return json.dumps(profile, indent=2)
 
@@ -181,7 +197,6 @@ def mobileconfig(state: dict, client: dict, kind: str) -> bytes:
     ike = {
         "RemoteAddress": host,
         "RemoteIdentifier": host,
-        "LocalIdentifier": name,
         "ServerCertificateIssuerCommonName": pki.ca_common_name(),
         "ServerCertificateCommonName": host,
         "CertificateType": "RSA",
@@ -205,12 +220,15 @@ def mobileconfig(state: dict, client: dict, kind: str) -> bytes:
             "LifeTimeInMinutes": 1440,
         },
     }
+    if name:
+        ike["LocalIdentifier"] = name
     if kind == "cert":
         ike.update({"AuthenticationMethod": "Certificate", "ExtendedAuthEnabled": 0,
                     "PayloadCertificateUUID": p12_uuid})
     else:
-        ike.update({"AuthenticationMethod": "None", "ExtendedAuthEnabled": 1,
-                    "AuthName": name, "AuthPassword": client["password"]})
+        ike.update({"AuthenticationMethod": "None", "ExtendedAuthEnabled": 1})
+        if name:  # ohne Namen (RADIUS-Benutzer) fragt das Geraet nach den Zugangsdaten
+            ike.update({"AuthName": name, "AuthPassword": client["password"]})
     content = [
         {
             "PayloadType": "com.apple.security.root",
@@ -247,7 +265,7 @@ def mobileconfig(state: dict, client: dict, kind: str) -> bytes:
         "PayloadVersion": 1,
         "PayloadIdentifier": f"vpnserver.{_uuid(state, name, 'profile', kind)}",
         "PayloadUUID": _uuid(state, name, "profile", kind),
-        "PayloadDisplayName": f"{sname} - {name}",
+        "PayloadDisplayName": f"{sname} - {name or 'RADIUS-Benutzer'}",
         "PayloadDescription": f"VPN-Zugang zu {sname} ({host})",
         "PayloadRemovalDisallowed": False,
         "PayloadContent": content,
@@ -348,9 +366,12 @@ def windows_cmd(state: dict, client: dict, kind: str) -> str:
     elif kind == "pptp":
         ps += (f"Add-VpnConnection -Name $name -ServerAddress {_ps_quote(host)} -TunnelType Pptp "
                "-AuthenticationMethod MSChapv2 -EncryptionLevel Required -RememberCredential -AllUserConnection\n")
-    if kind != "ikev2-cert":
+    if kind != "ikev2-cert" and client["name"]:
         ps += (f"Write-Host ''\nWrite-Host 'Benutzername: {client['name']}' -ForegroundColor Cyan\n"
                f"Write-Host 'Passwort:     {client['password']}' -ForegroundColor Cyan\n")
+    elif kind != "ikev2-cert":
+        ps += ("Write-Host ''\nWrite-Host 'Beim ersten Verbinden nach Benutzername und Passwort "
+               "(RADIUS-Zugang) fragen lassen.' -ForegroundColor Cyan\n")
     ps += ("Write-Host ''\nWrite-Host ('VPN-Verbindung \"' + $name + '\" wurde angelegt. Verbinden ueber "
            "Einstellungen -> Netzwerk und Internet -> VPN.') -ForegroundColor Green\n")
     return (_CMD_HEADER + ps).replace("\r\n", "\n").replace("\n", "\r\n")
@@ -473,6 +494,28 @@ def generate(state: dict, client: dict, kind: str) -> tuple[str, str, bytes]:
         data = zip_all(state, client)
     else:
         raise KeyError(kind)
+    return fname, mime, data
+
+
+# --------------------------------------------------------------------------
+# Profile fuer Benutzer des externen RADIUS-Servers (ohne gespeicherte Zugangsdaten)
+# --------------------------------------------------------------------------
+
+RADIUS_DOWNLOADS = ["ca", "sswan-eap", "mobileconfig-eap", "win-ikev2-eap", "win-sstp",
+                    "win-l2tp", "win-pptp"]
+
+
+def generic_client() -> dict:
+    return {"name": "", "password": "", "psk_id": "", "psk": "", "p12_password": "",
+            "full_tunnel": True, "vlan": "", "wg": {"ip": "", "privkey": "", "pubkey": "", "psk": ""}}
+
+
+def generate_generic(state: dict, kind: str) -> tuple[str, str, bytes]:
+    if kind not in RADIUS_DOWNLOADS:
+        raise KeyError(kind)
+    fname, mime, data = generate(state, generic_client(), kind)
+    if fname.startswith("-"):
+        fname = "radius" + fname
     return fname, mime, data
 
 

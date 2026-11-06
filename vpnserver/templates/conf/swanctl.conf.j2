@@ -1,6 +1,41 @@
 # Verwaltet von VPN-Server - manuelle Aenderungen werden ueberschrieben.
 connections {
 {% if ikev2 %}
+{% if per_client_certs %}
+{% for c in clients %}
+    # IKEv2 mit Client-Zertifikat fuer {{ c.name }} (Zuordnung zum Adressbereich/VLAN)
+    ikev2-cert-{{ c.name }} {
+        version = 2
+        proposals = {{ ike2_proposals }}
+        pools = {{ c.pool }}
+        send_cert = always
+        unique = replace
+        fragmentation = yes
+        mobike = yes
+        dpd_delay = 30s
+        rekey_time = 0s
+        local {
+            auth = pubkey
+            certs = vpn-server.crt
+            id = {{ server_id }}
+        }
+        remote {
+            auth = pubkey
+            id = %any
+            cacerts = vpn-server-ca.crt
+            certs = {{ c.cert_path }}
+        }
+        children {
+            ikev2-cert {
+                local_ts = 0.0.0.0/0
+                esp_proposals = {{ esp2_proposals }}
+                dpd_action = clear
+            }
+        }
+    }
+
+{% endfor %}
+{% else %}
     # IKEv2 mit Client-Zertifikat (Android "IKEv2/IPSec RSA", iOS/macOS, Windows, strongSwan-App)
     ikev2-cert {
         version = 2
@@ -30,6 +65,41 @@ connections {
         }
     }
 
+{% endif %}
+{% if radius %}
+{% for g in groups %}
+    # IKEv2 mit Benutzername/Passwort ueber RADIUS (EAP-MSCHAPv2), Adressbereich {{ g.group }}
+    ikev2-eap{{ g.suffix }} {
+        version = 2
+        proposals = {{ ike2_proposals }}
+        pools = {{ g.pool }}
+        send_cert = always
+        unique = replace
+        fragmentation = yes
+        mobike = yes
+        dpd_delay = 30s
+        rekey_time = 0s
+        local {
+            auth = pubkey
+            certs = vpn-server.crt
+            id = {{ server_id }}
+        }
+        remote {
+            auth = eap-radius
+            eap_id = %any
+            groups = {{ g.group }}
+        }
+        children {
+            ikev2-eap {
+                local_ts = 0.0.0.0/0
+                esp_proposals = {{ esp2_proposals }}
+                dpd_action = clear
+            }
+        }
+    }
+
+{% endfor %}
+{% else %}
     # IKEv2 mit Benutzername/Passwort (EAP-MSCHAPv2: Windows, iOS, macOS, Android "IKEv2/IPSec MSCHAPv2")
     ikev2-eap {
         version = 2
@@ -58,13 +128,14 @@ connections {
             }
         }
     }
+{% endif %}
 {% for c in clients %}
 
     # IKEv2 mit Pre-Shared Key fuer {{ c.name }} (Android "IKEv2/IPSec PSK", iOS)
     ikev2-psk-{{ c.name }} {
         version = 2
         proposals = {{ ike2_proposals }}
-        pools = vpn-ipsec
+        pools = {{ c.pool }}
         unique = replace
         fragmentation = yes
         mobike = yes
@@ -89,6 +160,39 @@ connections {
 {% endfor %}
 {% endif %}
 {% if ikev1_xauth %}
+{% if radius %}
+{% for g in groups %}
+
+    # IKEv1 mit PSK + XAuth ueber RADIUS, Adressbereich {{ g.group }}
+    ikev1-xauth{{ g.suffix }} {
+        version = 1
+        proposals = {{ ike1_proposals }}
+        pools = {{ g.pool }}
+        unique = replace
+        fragmentation = yes
+        dpd_delay = 30s
+        rekey_time = 0s
+        local {
+            auth = psk
+        }
+        remote {
+            auth = psk
+        }
+        remote-xauth {
+            auth = xauth-radius
+            groups = {{ g.group }}
+        }
+        children {
+            ikev1-xauth {
+                local_ts = 0.0.0.0/0
+                esp_proposals = {{ esp1_proposals }}
+                dpd_action = clear
+                rekey_time = 0s
+            }
+        }
+    }
+{% endfor %}
+{% else %}
 
     # IKEv1 mit PSK + XAuth ("Cisco IPsec" auf iOS/macOS, aeltere Android-Versionen)
     ikev1-xauth {
@@ -117,6 +221,7 @@ connections {
             }
         }
     }
+{% endif %}
 {% endif %}
 {% if l2tp %}
 
@@ -152,14 +257,17 @@ connections {
 }
 
 pools {
-    vpn-ipsec {
-        addrs = {{ pool_range }}
-        dns = {{ dns | join(', ') }}
+{% for p in pools %}
+    {{ p.name }} {
+        addrs = {{ p.addrs }}
+        dns = {{ p.dns | join(', ') }}
     }
+{% endfor %}
 }
 
 secrets {
 {% for c in clients %}
+{% if not radius %}
     eap-{{ c.name }} {
         id = {{ c.name }}
         secret = "{{ c.password }}"
@@ -168,6 +276,7 @@ secrets {
         id = {{ c.name }}
         secret = "{{ c.password }}"
     }
+{% endif %}
 {% if ikev2 %}
     ike-psk-{{ c.name }} {
         id = {{ c.psk_id }}

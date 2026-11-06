@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% from "_macros.html" import kv %}
+{% block title %}Profile für RADIUS-Benutzer{% endblock %}
+{% block content %}
+<div class="row"><h1 style="margin:0">Profile für RADIUS-Benutzer</h1>
+  <span class="right"><a href="{{ url_for('settings') }}#radius">← RADIUS-Einstellungen</a></span></div>
+<p class="muted">Diese Profile enthalten keine Zugangsdaten: Jeder Benutzer meldet sich mit seinem Benutzernamen und Passwort des RADIUS-Servers an. Das VLAN weist der RADIUS-Server zu. Die Dateien können an alle Benutzer verteilt werden.</p>
+{% if not state.radius.enabled %}<div class="warnbox">Es ist noch kein externer RADIUS-Server aktiviert. Lokale Clients können diese Profile ebenfalls verwenden (mit Client-Name und Passwort).</div>{% endif %}
+
+<div class="panel">
+  <h2>Downloads</h2>
+  <div class="row">
+  {% set labels = {
+    "ca": "CA-Zertifikat",
+    "sswan-eap": "Android: strongSwan-App (.sswan)",
+    "mobileconfig-eap": "iPhone/iPad/Mac: IKEv2 (.mobileconfig)",
+    "win-ikev2-eap": "Windows: IKEv2 (Skript)",
+    "win-sstp": "Windows: SSTP (Skript)",
+    "win-l2tp": "Windows: L2TP/IPsec (Skript)",
+    "win-pptp": "Windows: PPTP (Skript)"} %}
+  {% for k in kinds %}
+    <a class="btn {{ 'secondary' if not loop.first else '' }}" href="{{ url_for('radius_download', kind=k) }}">{{ labels[k] }}</a>
+  {% endfor %}
+  </div>
+  <p class="hint">Windows-Skripte mit Rechtsklick → „Als Administrator ausführen“ starten. Windows fragt beim ersten Verbinden nach Benutzername und Passwort.</p>
+</div>
+
+<div class="panel">
+  <h2>Manuelle Einrichtung</h2>
+  <dl class="kv">
+    {{ kv('Server-Adresse', info.host) }}
+    {% if enabled(state, 'ikev2') %}{{ kv('IKEv2: Remote-ID', info.host) }}
+    <dt>IKEv2: Anmeldung</dt><dd>Benutzername/Passwort (EAP-MSCHAPv2), CA-Zertifikat <code>{{ info.ca_cn }}</code> installieren</dd>{% endif %}
+    {% if enabled(state, 'l2tp') or enabled(state, 'ikev1_xauth') %}{{ kv('L2TP / Cisco IPsec: Shared Secret', info.psk) }}{% endif %}
+    {% if enabled(state, 'sstp') %}{{ kv('SSTP', info.sstp_addr) }}{% endif %}
+    {% if enabled(state, 'openconnect') %}{{ kv('OpenConnect / AnyConnect', info.oc_addr) }}
+    {% if not info.le %}{{ kv('OpenConnect: Zertifikats-Pin', info.pin) }}{% endif %}{% endif %}
+  </dl>
+  <ul>
+    {% if enabled(state, 'ikev2') %}<li><strong>Android 11+ ohne App:</strong> Einstellungen → VPN → hinzufügen → Typ „IKEv2/IPSec MSCHAPv2“, Server und IPSec-ID wie oben, CA-Zertifikat vorher unter Sicherheit → Zertifikat installieren.</li>{% endif %}
+    {% if enabled(state, 'openconnect') %}<li><strong>OpenConnect / Cisco Secure Client:</strong> Server <code>{{ info.oc_addr }}</code>, Benutzername und Passwort des RADIUS-Servers.</li>{% endif %}
+    {% if enabled(state, 'l2tp') %}<li><strong>L2TP/IPsec:</strong> Server wie oben, Shared Secret wie oben, Benutzername und Passwort des RADIUS-Servers.</li>{% endif %}
+    {% if enabled(state, 'ikev1_xauth') %}<li><strong>Cisco IPsec (iOS/macOS):</strong> Server, Account = Benutzername, Passwort, Shared Secret wie oben, Gruppenname leer.</li>{% endif %}
+  </ul>
+  <p class="hint">WireGuard und OpenVPN arbeiten mit Geräteschlüsseln statt Passwörtern – dafür bitte einen Client anlegen.</p>
+</div>
+{% endblock %}

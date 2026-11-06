@@ -217,6 +217,36 @@ iptables -I FORWARD -o br-e2e -j DROP
 grep -q " vpn.test" /etc/hosts || echo "192.168.250.1 vpn.test" >> /etc/hosts
 modprobe -a ppp_generic ppp_async ppp_deflate ppp_mppe l2tp_ppp wireguard >/dev/null 2>&1
 
+# Externer RADIUS-Server (FreeRADIUS auf dem Test-Host, fuer den Gast 10.0.2.2) mit
+# VLAN-Zuweisung wie bei einem WLAN-Controller
+if command -v freeradius >/dev/null 2>&1; then
+  RADDB=/etc/freeradius/3.0
+  cat > "$RADDB/mods-config/files/authorize" <<'EOF'
+"radvlan10" Cleartext-Password := "Radius-Pass10"
+	Tunnel-Type = VLAN,
+	Tunnel-Medium-Type = IEEE-802,
+	Tunnel-Private-Group-Id = "10",
+	Class = "nps-klasse-die-der-vpn-server-nicht-verwenden-darf-0123456789",
+	Framed-IP-Address = 192.0.2.99
+
+"radnovlan" Cleartext-Password := "Radius-Pass00"
+
+"radvlan99" Cleartext-Password := "Radius-Pass99"
+	Tunnel-Type = VLAN,
+	Tunnel-Medium-Type = IEEE-802,
+	Tunnel-Private-Group-Id = "99"
+
+"radwrong" Cleartext-Password := "Richtig-Pass1"
+EOF
+  rm -rf /var/log/freeradius/radacct/127.0.0.1
+  systemctl restart freeradius && echo "FreeRADIUS (extern) bereit"
+fi
+
+# VLAN-Trunk: zweite Netzwerkkarte des Servers; VLAN 10 und 20 sind eigene Netze
+# (Namespaces) mit einem HTTP-Dienst, der die Absenderadresse zurueckgibt
+TRUNK=(-netdev "tap,id=trunk,ifname=tap-trunk,script=no,downscript=no"
+       -device "virtio-net-pci,netdev=trunk,addr=0x9,mac=52:54:00:00:99:01")
+
 FWD="hostfwd=tcp:127.0.0.1:8443-:8443,hostfwd=tcp:127.0.0.1:2222-:22"
 for p in udp:51820 udp:1194 tcp:1194 udp:500 udp:4500 tcp:443 tcp:4443 udp:4443 tcp:1723; do
   FWD="$FWD,hostfwd=${p%%:*}:192.168.250.1:${p##*:}-:${p##*:}"
@@ -226,8 +256,19 @@ if [ ! -f vm-vars.fd ]; then FW_BOOT=(); fi
 echo "Firmware beim Start: ${FW_BOOT[*]:-BIOS (SeaBIOS)}"
 qemu-system-x86_64 "${ACCEL[@]}" "${FW_BOOT[@]}" -m 2048 -smp 2 -display none -monitor none \
   -serial file:boot-serial.log -drive file=disk.qcow2,if=virtio,format=qcow2 \
-  -netdev "user,id=n0,$FWD" -device virtio-net-pci,netdev=n0 \
+  -netdev "user,id=n0,$FWD" -device virtio-net-pci,netdev=n0 "${TRUNK[@]}" \
   -daemonize -pidfile qemu.pid || { echo "QEMU-Start fehlgeschlagen"; exit 1; }
+ip link set tap-trunk up
+for v in 10 20; do
+  ip netns del "vlan$v" 2>/dev/null
+  ip netns add "vlan$v"
+  ip link add link tap-trunk name "trunk.$v" type vlan id "$v"
+  ip link set "trunk.$v" netns "vlan$v"
+  ip -n "vlan$v" addr add "192.168.$v.1/24" dev "trunk.$v"
+  ip -n "vlan$v" link set "trunk.$v" up
+  ip -n "vlan$v" link set lo up
+  ip netns exec "vlan$v" python3 "$HERE/echo_ip.py" 8080 >/dev/null 2>&1 &
+done
 
 # "Heimnetz"-Dienst: fuer den Gast ist der QEMU-Host 10.0.2.2
 python3 -m http.server 8099 --bind 127.0.0.1 --directory "$WORK" >/dev/null 2>&1 &

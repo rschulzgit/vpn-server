@@ -72,6 +72,8 @@ PACKAGES=(
   wireguard-tools openvpn ocserv
   strongswan-swanctl charon-systemd libcharon-extauth-plugins libcharon-extra-plugins
   libstrongswan-extra-plugins libstrongswan-standard-plugins
+  # RADIUS (externer RADIUS-Server, VLAN-Zuordnung)
+  freeradius freeradius-utils
   # System
   nftables iproute2 kmod openssl ca-certificates curl sudo avahi-daemon
   unattended-upgrades certbot
@@ -90,6 +92,10 @@ log "Installiere Pakete"
 apt-get install "${APT_OPTS[@]}" --no-install-recommends "${PACKAGES[@]}"
 # ocserv startet nach der Installation mit Standardport 443 -> stoppen, vpnctl konfiguriert es
 systemctl stop ocserv.service >/dev/null 2>&1 || true
+# Der Standard-FreeRADIUS lauscht auf allen Schnittstellen -> nicht verwenden
+# (vpn-radius.service startet FreeRADIUS mit eigener Konfiguration nur auf 127.0.0.1)
+systemctl disable --now freeradius.service >/dev/null 2>&1 || true
+systemctl mask freeradius.service >/dev/null 2>&1 || true
 
 # ---------------------------------------------------------------------------
 # accel-ppp (SSTP, L2TP, PPTP)

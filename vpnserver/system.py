@@ -9,8 +9,10 @@ import io
 import ipaddress
 import json
 import os
+import re
 import shutil
 import tarfile
+import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -370,3 +372,77 @@ def journal(unit: str, lines: int = 150) -> str:
         log_file = util.read_file("/var/log/accel-ppp/accel-ppp.log") or ""
         out += "\n--- /var/log/accel-ppp/accel-ppp.log ---\n" + "\n".join(log_file.splitlines()[-lines:])
     return out
+
+
+# --------------------------------------------------------------------------
+# RADIUS-Verbindungstest (direkt gegen den externen RADIUS-Server)
+# --------------------------------------------------------------------------
+
+def _radius_quote(value: str) -> str:
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def radius_test(state: dict, username: str, password: str, method: str = "pap",
+                server_index: int = 0) -> tuple[bool, str]:
+    """Sendet eine Test-Anmeldung an den externen RADIUS-Server und wertet die
+    Antwort (inkl. VLAN-Zuweisung) aus. Gibt (Erfolg, Meldung) zurueck."""
+    from . import vlan as vl
+    servers = state["radius"].get("servers") or []
+    if server_index >= len(servers):
+        return False, "Kein RADIUS-Server eingetragen."
+    srv = servers[server_index]
+    if not util.have("radclient"):
+        return False, "radclient ist nicht installiert (Paket freeradius-utils)."
+    pw_attr = "MS-CHAP-Password" if method == "mschap" else "User-Password"
+    attrs = "\n".join([
+        f"User-Name = {_radius_quote(username)}",
+        f"{pw_attr} = {_radius_quote(password)}",
+        f"NAS-Identifier = {_radius_quote(state['radius'].get('nas_identifier') or 'vpn-server')}",
+        "NAS-Port-Type = Virtual",
+        "Service-Type = Framed-User",
+        "Message-Authenticator = 0x00",
+        ""])
+    host = srv["host"]
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    with tempfile.NamedTemporaryFile("w", prefix="radius-", delete=True) as fh:
+        os.chmod(fh.name, 0o600)
+        fh.write(srv["secret"])
+        fh.flush()
+        res = util.run(["radclient", "-x", "-t", "4", "-r", "2", "-S", fh.name,
+                        f"{host}:{srv['auth_port']}", "auth"], input=attrs, timeout=30)
+    out = (res.stdout or "") + (res.stderr or "")
+    m = re.search(r"Received (Access-\w+)", out)
+    if not m:
+        if "No reply" in out or "no response" in out.lower():
+            return False, (f"Keine Antwort von {srv['host']}:{srv['auth_port']}. Ist dieser Server "
+                           "dort als RADIUS-Client mit demselben Geheimnis eingetragen, und ist "
+                           "der Port erreichbar?")
+        return False, "Fehler: " + out.strip()[-300:]
+    reply = out[m.end():]
+    msg = re.search(r'Reply-Message = "([^"]*)"', reply)
+    if m.group(1) != "Access-Accept":
+        text = f"Abgelehnt ({m.group(1)})."
+        if msg:
+            text += f" Meldung: {msg.group(1)}"
+        if method == "pap":
+            text += " Hinweis: Manche Server (z. B. Windows NPS) erlauben PAP nur, wenn es in der " \
+                    "Netzwerkrichtlinie aktiviert ist."
+        return False, text
+    vid = re.search(r'Tunnel-Private-Group-Id(?::\d+)? = "?([^"\n]+)"?', reply)
+    text = "Anmeldung erfolgreich."
+    if vid:
+        v = vl.get(state, vid.group(1).strip())
+        if v:
+            text += f" VLAN {v['id']} ({v['name']}) zugewiesen."
+        elif state["radius"].get("unknown_vlan", "reject") == "reject":
+            text += (f" Der Server weist VLAN {vid.group(1).strip()} zu, das hier nicht "
+                     "eingerichtet ist - die VPN-Anmeldung würde abgelehnt.")
+        else:
+            text += (f" Der Server weist VLAN {vid.group(1).strip()} zu, das hier nicht "
+                     "eingerichtet ist - Verbindung im Standardnetz.")
+    else:
+        text += " Kein VLAN zugewiesen" + (
+            " - die VPN-Anmeldung würde abgelehnt (Einstellung)."
+            if state["radius"].get("no_vlan") == "reject" else " (Standardnetz).")
+    return True, text

@@ -6,7 +6,7 @@
   {% if not c.enabled %}<span class="badge err">gesperrt</span>{% endif %}
   <span class="right"><a href="{{ url_for('clients') }}">← alle Clients</a></span>
 </div>
-<p class="muted">{{ c.note }}</p>
+<p class="muted">{{ c.note }}{% if client_vlan %} <span class="badge">VLAN {{ client_vlan.id }} – {{ client_vlan.name }}</span>{% endif %}</p>
 
 {% if c.enabled %}
 <div class="panel">
@@ -47,8 +47,16 @@
       <label for="tunnel">Tunnel (WireGuard/OpenVPN)</label>
       <select id="tunnel" name="tunnel">
         <option value="full" {{ 'selected' if c.full_tunnel }}>Gesamter Internetverkehr</option>
-        <option value="split" {{ 'selected' if not c.full_tunnel }}>Nur Heimnetz (Split-Tunnel)</option>
+        <option value="split" {{ 'selected' if not c.full_tunnel }}>{{ 'Nur VLAN-Netz' if client_vlan else 'Nur Heimnetz' }} (Split-Tunnel)</option>
       </select>
+      {% if vlans %}
+      <label for="vlan">VLAN</label>
+      <select id="vlan" name="vlan">
+        <option value="" {{ 'selected' if not client_vlan }}>Standardnetz</option>
+        {% for v in vlans %}<option value="{{ v.id }}" {{ 'selected' if client_vlan and client_vlan.id == v.id }}>VLAN {{ v.id }} – {{ v.name }}</option>{% endfor %}
+      </select>
+      <p class="hint">Gilt für alle Protokolle dieses Clients. Bei einer Änderung muss das WireGuard-Profil neu importiert werden.</p>
+      {% endif %}
       <div class="actions"><button class="btn" type="submit">Speichern</button></div>
     </form>
   </div>

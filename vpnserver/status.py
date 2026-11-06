@@ -6,7 +6,7 @@ import json
 import re
 import time
 
-from . import state as st, util
+from . import state as st, util, vlan
 
 UNITS = [
     ("wireguard", "WireGuard", "wg-quick@wg0.service"),
@@ -15,6 +15,7 @@ UNITS = [
     ("ipsec", "strongSwan (IKEv2, IKEv1, L2TP-IPsec)", "strongswan.service"),
     ("ppp", "accel-ppp (L2TP, SSTP, PPTP)", "accel-ppp.service"),
     ("openconnect", "OpenConnect (ocserv)", "ocserv.service"),
+    ("radius", "RADIUS (lokaler Dienst)", "vpn-radius.service"),
     ("firewall", "Firewall (nftables)", "nftables.service"),
 ]
 
@@ -48,6 +49,7 @@ def unit_states(state: dict) -> list[dict]:
         "ipsec": st.any_ipsec(state),
         "ppp": st.any_ppp(state),
         "openconnect": st.enabled(state, "openconnect"),
+        "radius": vlan.radius_mode(state),
         "firewall": True,
     }
     ov = state["proto"]["openvpn"]
@@ -229,4 +231,8 @@ def all_sessions(state: dict) -> list[dict]:
     sessions += ipsec_display(ipsec_sessions())
     sessions += ppp_sessions()
     sessions += openconnect_sessions()
+    for sess in sessions:
+        v = vlan.vlan_of_ip(state, str(sess.get("vip", "")).split("/")[0])
+        sess["vlan"] = f"{v['id']} ({v['name']})" if v else ""
+        sess["radius"] = bool(sess.get("user")) and sess.get("user") not in state["clients"]
     return sessions

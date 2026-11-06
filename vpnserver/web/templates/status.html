@@ -4,13 +4,13 @@
 <h1>Status</h1>
 <div class="panel">
   <h2>Verbundene Clients (<span id="session-count">{{ sessions | length }}</span>)</h2>
-  <div class="table-wrap"><table id="live-sessions">
-    <thead><tr><th>Client</th><th>Protokoll</th><th>VPN-IP</th><th>Von</th><th>Empfangen / Gesendet</th><th>Seit</th></tr></thead>
+  <div class="table-wrap"><table id="live-sessions"{% if state.vlans %} data-vlans="1"{% endif %}>
+    <thead><tr><th>Client</th><th>Protokoll</th><th>VPN-IP</th>{% if state.vlans %}<th>VLAN</th>{% endif %}<th>Von</th><th>Empfangen / Gesendet</th><th>Seit</th></tr></thead>
     <tbody>
     {% for s in sessions %}
-      <tr><td>{{ s.user }}</td><td>{{ s.proto }}</td><td>{{ s.vip }}</td><td>{{ s.remote }}</td><td>{{ s.rx }} / {{ s.tx }}</td><td>{{ s.since }}</td></tr>
+      <tr><td>{{ s.user }}{% if s.radius %} <span class="badge">RADIUS</span>{% endif %}</td><td>{{ s.proto }}</td><td>{{ s.vip }}</td>{% if state.vlans %}<td>{{ s.vlan or 'Standard' }}</td>{% endif %}<td>{{ s.remote }}</td><td>{{ s.rx }} / {{ s.tx }}</td><td>{{ s.since }}</td></tr>
     {% else %}
-      <tr><td colspan="6" class="muted">Keine Verbindungen.</td></tr>
+      <tr><td colspan="7" class="muted">Keine Verbindungen.</td></tr>
     {% endfor %}
     </tbody>
   </table></div>
