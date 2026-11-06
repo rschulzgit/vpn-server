@@ -169,8 +169,9 @@ def apply(state: dict, restart_webui: bool = True) -> list[str]:
 
     # Weboberflaeche neu laden, wenn sich das TLS-Zertifikat geaendert hat
     if tls_changed and restart_webui:
+        # Unterbrechungsfrei: gunicorn laedt per HUP neue Worker mit dem neuen Zertifikat
         util.run(["systemd-run", "--on-active=2", "--unit=vpn-webui-reload",
-                  "--collect", "systemctl", "restart", WEBUI_UNIT])
+                  "--collect", "systemctl", "reload-or-restart", WEBUI_UNIT])
     return messages
 
 

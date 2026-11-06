@@ -183,6 +183,24 @@ class Web:
 
     def req(self, path: str, data: dict | None = None, files: dict | None = None,
             csrf: bool = True) -> tuple[int, str, bytes]:
+        """Anfrage mit Wiederholung bei Verbindungsabbruechen (z. B. waehrend die
+        Weboberflaeche ein neues Zertifikat laedt)."""
+        last_exc = None
+        for attempt in range(12):
+            if data is not None or files is not None:
+                wait_web(60)
+            try:
+                return self._req(path, data, files, csrf)
+            except (urllib.error.URLError, ConnectionError, ssl.SSLError, TimeoutError) as exc:
+                if isinstance(exc, urllib.error.HTTPError):
+                    raise
+                last_exc = exc
+                print(f"  (Verbindung unterbrochen: {exc} - neuer Versuch)", flush=True)
+                time.sleep(5)
+        raise last_exc
+
+    def _req(self, path: str, data: dict | None = None, files: dict | None = None,
+             csrf: bool = True) -> tuple[int, str, bytes]:
         headers = {}
         body = None
         if files is not None:
@@ -245,6 +263,12 @@ class Web:
     def client_action(self, client: str, action: str, **extra) -> list[str]:
         _code, _url, raw = self.req(f"/clients/{client}/action", {"action": action, **extra})
         return self.flashes(raw)
+
+
+def wait_web(timeout: int = 120) -> bool:
+    """Wartet, bis die Weboberflaeche antwortet."""
+    return wait_until(lambda: sh(f"curl -skf --max-time 5 --noproxy '*' {WEB}/health",
+                                 timeout=15).returncode == 0, timeout, 2)
 
 
 W = Web()
@@ -354,6 +378,10 @@ def t_setup():
     check("/setup" in url, "Private IP als öffentliche Adresse wurde akzeptiert")
     code, url, raw = W.req("/setup", {"public_host": VPN_HOST, "dns": DNS})
     check("/setup" not in url, f"Assistent nicht abgeschlossen: {W.flashes(raw)}")
+    time.sleep(5)  # Zertifikat fuer die neue Adresse wird per Reload uebernommen
+    check(wait_web(60), "Weboberfläche nach Zertifikatswechsel nicht erreichbar")
+    r = sh("echo | openssl s_client -connect 127.0.0.1:8443 2>/dev/null | openssl x509 -noout -ext subjectAltName")
+    check(VPN_HOST in r.stdout, f"Weboberfläche nutzt nicht das neue Zertifikat: {r.stdout.strip()}")
     # neues Passwort gilt
     w2 = Web()
     check(w2.login(NEW_ADMIN_PW), "Neues Admin-Passwort funktioniert nicht")
@@ -1178,7 +1206,8 @@ def t_firewall():
     r = remote("nft list chain inet vpnserver input")
     out = r.stdout
     check("policy drop" in out, "Input-Policy ist nicht drop")
-    check("udp dport 1701 meta secpath exists accept" in out, "L2TP nicht auf IPsec beschränkt")
+    check(re.search(r"udp dport 1701 meta (secpath|ipsec) exists accept", out),
+          "L2TP nicht auf IPsec beschränkt")
     check("tcp dport 8443 ip saddr @private_nets accept" in out, "Weboberfläche nicht beschränkt")
 
 

@@ -81,6 +81,11 @@ ppp-max-mtu=1436
 dns{{ loop.index }}={{ d }}
 {% endfor %}
 
+[client-ip-range]
+# Von welchen Absenderadressen Verbindungen angenommen werden: alle
+# (Zugriff regeln Benutzername/Passwort bzw. IPsec)
+0.0.0.0/0
+
 [ip-pool]
 gw-ip-address={{ gw_ip }}
 {{ pool_range }},name=vpn-ppp

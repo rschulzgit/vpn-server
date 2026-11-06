@@ -12,13 +12,17 @@ from . import create_app
 
 
 class _App(BaseApplication):
-    def __init__(self, app, options):
+    """gunicorn-Anwendung. Die Optionen werden bei jedem (Neu-)Laden aus dem
+    Zustand gelesen, damit ein HUP-Reload neue Zertifikate (z. B. nach einer
+    Aenderung der oeffentlichen Adresse oder Let's Encrypt) ohne Unterbrechung
+    uebernimmt."""
+
+    def __init__(self, app):
         self.application = app
-        self.options = options
         super().__init__()
 
     def load_config(self):
-        for key, value in self.options.items():
+        for key, value in _options().items():
             self.cfg.set(key, value)
 
     def load(self):
@@ -36,10 +40,10 @@ def _bind(port: int) -> list[str]:
     return [f"0.0.0.0:{port}"]
 
 
-def main() -> None:
+def _options() -> dict:
     state = st.load()
     cert, key = pki.tls_cert_paths(state)
-    options = {
+    return {
         "bind": _bind(int(state["server"].get("webui_port", 8443))),
         "workers": 1,
         "threads": 8,
@@ -52,8 +56,12 @@ def main() -> None:
         "loglevel": "warning",
         "proc_name": "vpn-webui",
         "forwarded_allow_ips": "",
+        "graceful_timeout": 30,
     }
-    _App(create_app(), options).run()
+
+
+def main() -> None:
+    _App(create_app()).run()
 
 
 if __name__ == "__main__":

@@ -111,6 +111,7 @@ def test_render_accel_and_ocserv(srv):
     acc = read(render.ACCEL_CONF)
     assert "[sstp]" in acc and "[pptp]" in acc and "[l2tp]" in acc
     assert "10.66.70.10-254,name=vpn-ppp" in acc
+    assert "[client-ip-range]\n" in acc and "0.0.0.0/0" in acc
     chap = read(render.CHAP_SECRETS)
     assert '"laptop" * "Mein-Passwort1" *' in chap
     oc = read(render.OCPASSWD)
