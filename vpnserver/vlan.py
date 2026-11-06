@@ -358,6 +358,27 @@ def apply_network(state: dict) -> list[str]:
     return msgs
 
 
+def sync_wg_routes(state: dict, dev: str = "wg0") -> None:
+    """Routen der WireGuard-Bloecke je VLAN ueber wg0.
+
+    wg-quick legt Routen nur beim Start an; Peers, die spaeter per "wg syncconf"
+    hinzukommen und eine Adresse ausserhalb des wg0-Netzes haben (VLAN-Bereich),
+    braeuchten sonst einen Neustart der Schnittstelle."""
+    if util.DRYRUN:
+        return
+    want = {str(proto_net(v, "wireguard")) for v in vlans(state)}
+    res = util.run(["ip", "-j", "-4", "route", "show", "dev", dev, "proto", "static"])
+    try:
+        have = {r.get("dst", "") for r in json.loads(res.stdout or "[]")}
+    except ValueError:
+        have = set()
+    for dst in have - want:
+        if dst:
+            util.run(["ip", "route", "del", dst, "dev", dev, "proto", "static"])
+    for dst in sorted(want):
+        _ip("route", "replace", dst, "dev", dev, "proto", "static")
+
+
 def link_state(v: dict) -> dict:
     """Zustand einer VLAN-Schnittstelle fuer die Statusanzeige."""
     res = util.run(["ip", "-j", "-4", "addr", "show", "dev", ifname(v)])

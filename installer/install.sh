@@ -152,7 +152,7 @@ chmod 0755 /usr/local/sbin/vpnctl
 
 log "Richte systemd-Dienste ein"
 install -m 0644 "$SRC_DIR"/installer/systemd/*.service "$SRC_DIR"/installer/systemd/*.timer /etc/systemd/system/
-for d in ocserv.service.d wg-quick@.service.d; do
+for d in ocserv.service.d wg-quick@.service.d strongswan.service.d; do
   install -d /etc/systemd/system/$d
   install -m 0644 "$SRC_DIR/installer/systemd/$d/vpn-server.conf" /etc/systemd/system/$d/
 done

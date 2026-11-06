@@ -155,7 +155,7 @@ def render_strongswan(state: dict) -> dict:
     clients = []
     for c in active_clients(state):
         v = vlan.client_vlan(state, c)
-        clients.append(dict(c, pool=_ipsec_pool(v), cert_path=pki.client_paths(c["name"])[0]))
+        clients.append(dict(c, pool=_ipsec_pool(v), cert_path=pki.client_paths(c["name"])[1]))
     # Gruppen fuer die Zuordnung nach der RADIUS-Anmeldung (Class-Attribut)
     groups = [{"group": "vlan0", "pool": "vpn-ipsec", "suffix": ""}]
     groups += [{"group": f"vlan{v['id']}", "pool": _ipsec_pool(v), "suffix": f"-vlan{v['id']}"}

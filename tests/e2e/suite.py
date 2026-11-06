@@ -1400,6 +1400,33 @@ def write_radius_swanctl() -> None:
     id = radvlan10
     secret = "Radius-Pass10"
   }""")
+    # Lokaler Client mit VLAN und Zertifikat (eigene Server-Verbindung je Client)
+    os.makedirs("/etc/swanctl/pkcs12", exist_ok=True)
+    with open("/etc/swanctl/pkcs12/vlan20dev.p12", "wb") as fh:
+        fh.write(W.download(VLAN_DEV, "p12"))
+    vcred = json.loads(W.download(VLAN_DEV, "json"))
+    conns.append(f"""  vlan-cert20 {{
+    version = 2
+    remote_addrs = {VPN_HOST}
+    vips = 0.0.0.0
+    local {{
+      auth = pubkey
+      id = {VLAN_DEV}
+    }}
+    remote {{
+      auth = pubkey
+      id = {VPN_HOST}
+    }}
+    children {{
+      vlan-cert20 {{
+        remote_ts = 0.0.0.0/0
+      }}
+    }}
+  }}""")
+    secrets.append(f"""  pkcs12-vlan20dev {{
+    file = vlan20dev.p12
+    secret = "{vcred['ikev2']['p12_password']}"
+  }}""")
     with open("/etc/swanctl/conf.d/e2e-radius.conf", "w") as fh:
         fh.write("connections {\n" + "\n".join(conns) + "\n}\nsecrets {\n" + "\n".join(secrets) + "\n}\n")
     del c
@@ -1506,6 +1533,22 @@ def t_vlan_sstp_local():
     route_via(ppp_iface())
     errors = vlan_checks(20, 10)
     check(not errors, ", ".join(errors))
+    return f"({vip})"
+
+
+@test("RADIUS / VLAN", "Lokaler Client in VLAN 20: IKEv2 mit Zertifikat (eigene Verbindung je Client)")
+def t_vlan_ikev2_cert():
+    write_radius_swanctl()
+    r = nsx("swanctl --load-all --noprompt")
+    check("failed" not in r.stdout + r.stderr, f"swanctl: {r.stdout[-400:]}")
+    r = nsx("timeout 45 swanctl --initiate --child vlan-cert20", timeout=60)
+    check(r.returncode == 0, "Verbindung fehlgeschlagen: " + (r.stdout + r.stderr)[-500:])
+    vip = swan_vip("vlan-cert20")
+    check(in_net(vip, "10.67.2.32/27"), f"Adresse nicht aus VLAN 20: {vip}")
+    errors = vlan_checks(20, 10)
+    check(not errors, ", ".join(errors))
+    check(vlan_session(VLAN_DEV, 20), "VLAN nicht in der Statusanzeige")
+    nsx("swanctl --terminate --ike vlan-cert20 --force")
     return f"({vip})"
 
 
