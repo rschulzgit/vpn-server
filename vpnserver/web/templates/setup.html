@@ -3,7 +3,7 @@
 {% set hide_nav = True %}
 {% block title %}Einrichtung{% endblock %}
 {% block content %}
-<div style="max-width:720px;margin:0 auto">
+<div class="setup-wrap">
 <h1>Einrichtung</h1>
 {% if step == 'password' %}
 <div class="panel">
@@ -30,7 +30,7 @@
     {{ csrf() }}
     <label for="public_host">Öffentliche Adresse (DNS-Name oder IP)</label>
     <div class="row">
-      <input id="public_host" name="public_host" type="text" style="flex:1" value="{{ state.server.public_host }}" placeholder="z. B. meinvpn.duckdns.org" required>
+      <input id="public_host" name="public_host" type="text" class="flex-1" value="{{ state.server.public_host }}" placeholder="z. B. meinvpn.duckdns.org" required>
       <button type="button" class="btn secondary" data-detect-ip="public_host">Öffentliche IP ermitteln</button>
     </div>
     <label for="dns">DNS-Server für VPN-Clients</label>

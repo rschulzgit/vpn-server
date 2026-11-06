@@ -184,6 +184,9 @@ def apply(state: dict, restart_webui: bool = True) -> list[str]:
     ensure_unit("ocserv.service", st.enabled(state, "openconnect"),
                 restart=bool(oc_files & changed) or tls_changed)
 
+    # Statistik (Durchsatz, Datenvolumen, Verbindungsprotokoll)
+    ensure_unit("vpn-stats.service", True)
+
     # Weboberflaeche neu laden, wenn sich das TLS-Zertifikat geaendert hat
     if tls_changed and restart_webui:
         # Unterbrechungsfrei: gunicorn laedt per HUP neue Worker mit dem neuen Zertifikat

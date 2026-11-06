@@ -28,7 +28,15 @@ und zeigt pro Betriebssystem eine Schritt-für-Schritt-Anleitung an.
   Windows-Einrichtungsskripte (IKEv2, SSTP, L2TP, PPTP), Zugangsdaten als TXT/JSON, alles als ZIP
 - **Teilen-Link mit QR-Code**: Profile direkt auf dem Handy öffnen (24 h gültig, nur im Heimnetz)
 - Split-Tunnel (nur Heimnetz) oder kompletter Internetverkehr pro Client
-- Live-Status aller Verbindungen und Dienste, Protokollanzeige
+- **Übersicht** mit Live-Durchsatz (Download/Upload, letzte 5 Minuten), Kennzahlen, Systemlast
+  (CPU, RAM, Datenträger, Temperatur) und **Netzwerkplan** (Internet → Router → Server → Netze/VLANs
+  → verbundene Geräte)
+- **Statistik**: Datenvolumen für 24 Stunden, 7 und 30 Tage – gesamt, je Benutzer und je VLAN
+- **Verbindungen**: Live-Liste mit „Trennen“, **Verbindungsprotokoll** (wer war wann wie lange
+  verbunden, mit Datenvolumen), Dienste mit Protokollanzeige
+- **Werkzeuge**: Ping, Traceroute, DNS-Abfrage, Speedtest (Server ↔ Internet), Wake-on-LAN mit
+  gespeicherten Geräten, Paketmitschnitt als `.pcap` für Wireshark
+- Hell/Dunkel automatisch, für Handy optimiert
 - Protokolle einzeln an-/abschalten, Ports und Adressbereiche ändern
 - **DynDNS** (DuckDNS, dynv6, IPv64, No-IP/DynDNS2, eigene URL)
 - **Let's Encrypt** (optional) für SSTP, OpenConnect und die Weboberfläche
@@ -206,6 +214,8 @@ automatisch getestet (`tests/e2e/`):
 - **RADIUS/VLAN:** externer FreeRADIUS mit VLAN-Attributen, VLAN-Trunk an der Test-VM;
   RADIUS-Benutzer per IKEv2, Cisco IPsec, L2TP, SSTP und OpenConnect sowie lokale Geräte per
   WireGuard, OpenVPN und SSTP landen im richtigen VLAN; Isolation, Ablehnungen, Accounting
+- **Statistik & Werkzeuge:** Durchsatz und Datenvolumen je Client werden bei echtem Verkehr
+  erfasst, Verbindungsprotokoll, Ping/DNS/Wake-on-LAN/Paketmitschnitt über die Weboberfläche
 - **Funktionen:** Client-zu-Client, Heimnetz-Sperre, Protokolle an/aus, Passwortwechsel,
   Sperren/Entsperren, Schlüssel erneuern, Löschen, Teilen-Link, Sicherung, `vpnctl`, Neustart
 

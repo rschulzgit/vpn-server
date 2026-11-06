@@ -247,3 +247,61 @@ def test_vlan_validation():
     with pytest.raises(ValueError):
         vlan.validate(s, {"id": "99", "address": "192.168.99.2/24"})
     assert vlan.ovpn_slice("10.66.67.0/24", 8) == __import__("ipaddress").ip_network("10.66.67.240/28")
+
+
+def test_stats_collector_and_history(monkeypatch):
+    import time as _t
+    from vpnserver import stats, util as u
+    u.remove_file(stats.HIST_FILE)
+    u.remove_file(stats.EVENTS_FILE)
+    col = stats.Collector()
+    counters = iter([{"vpn_down": 1000, "vpn_up": 100, "vlan10_down": 0, "vlan10_up": 0},
+                     {"vpn_down": 5000, "vpn_up": 600, "vlan10_down": 300, "vlan10_up": 30},
+                     {"vpn_down": 200, "vpn_up": 50, "vlan10_down": 10, "vlan10_up": 1}])  # Firewall neu geladen
+    monkeypatch.setattr(stats, "nft_counters", lambda: next(counters))
+    col.tick_live()
+    col.tick_live()
+    col.tick_live()
+    b = col.hist["buckets"][-1]
+    assert b["down"] == 4000 + 200 and b["up"] == 500 + 50
+    assert b["vlan"]["10"] == [310, 31]
+    assert len(col.points) == 2 and col.points[0][1] > 0
+    # Verbindungen: Zuwachs je Benutzer, Ereignisse
+    from vpnserver import status
+    sess = [{"user": "anna", "proto": "SSTP", "vip": "10.66.70.10", "sid": "ppp:1", "rx_bytes": 100, "tx_bytes": 1000}]
+    monkeypatch.setattr(status, "all_sessions", lambda state: [dict(x) for x in sess])
+    s = st.default_state()
+    st.save(s)
+    col.tick_sessions()
+    sess[0].update(rx_bytes=300, tx_bytes=4000)
+    col.tick_sessions()
+    assert col.hist["buckets"][-1]["c"]["anna"] == [4000, 300]
+    sess.clear()
+    col.tick_sessions()
+    ev = stats.events()
+    assert ev[0]["type"] == "disconnect" and ev[0]["user"] == "anna" and ev[1]["type"] == "connect"
+    col.flush()
+    h = stats.history("24h")
+    assert len(h["series"]) == 24 and h["series"][-1]["down"] == 4200
+    assert h["clients"][0]["name"] == "anna" and h["vlans"]["10"]["down"] == 310
+    d7 = stats.history("7d")
+    assert len(d7["series"]) == 7 and d7["total"]["down"] == 4200
+    assert stats.today_volume()["down"] == 4200
+    del _t
+
+
+def test_tools_validation():
+    from vpnserver import tools
+    for bad in ("", "a b", "1.2.3.4; rm -rf /", "$(id)", "-c1 x", "x" * 300):
+        with pytest.raises(tools.ToolError):
+            tools.ping(bad)
+    assert tools.normalize_mac("00-11-22-AA-bb-CC") == "00:11:22:aa:bb:cc"
+    assert tools.normalize_mac("001122aabbcc") == "00:11:22:aa:bb:cc"
+    with pytest.raises(tools.ToolError):
+        tools.normalize_mac("00:11:22:33:44")
+    with pytest.raises(tools.ToolError):
+        tools.capture("any", 1, "host 1.2.3.4 && reboot")
+    with pytest.raises(tools.ToolError):
+        tools.capture("eth99-gibts-nicht", 1, "")
+    with pytest.raises(tools.ToolError):
+        tools.dns("example.org", "PTR")

@@ -140,3 +140,34 @@ def test_radius_vlan_flow(client):
     client.post("/settings", data={"section": "vlan-delete", "csrf_token": tok, "id": "10"})
     s = st.load()
     assert not s["vlans"] and s["clients"]["gast"]["vlan"] == ""
+
+
+def test_dashboard_stats_tools(client):
+    import json as _json
+    tok = login_and_setup(client)
+    client.post("/clients", data={"name": "csp-test", "tunnel": "full", "csrf_token": tok})
+    for page in ("/", "/statistik", "/werkzeuge", "/status", "/settings", "/clients", "/clients/csp-test",
+                 "/system", "/radius-profile"):
+        r = client.get(page)
+        assert r.status_code == 200, page
+        assert 'style="' not in r.text, f"Inline-Style (CSP) auf {page}"
+    live = client.get("/api/live").get_json()
+    assert "points" in live and "system" in live and "today" in live
+    hist = client.get("/api/history?range=30d").get_json()
+    assert len(hist["series"]) == 30
+    assert client.get("/api/history?range=quatsch").get_json()["range"] == "24h"
+    assert "events" in client.get("/api/events?limit=5").get_json()
+    r = client.post("/api/tools/ping", data={"host": "1.2.3.4;id", "csrf_token": tok})
+    assert r.status_code == 400 and "Ungültige" in r.get_json()["output"]
+    assert client.post("/api/tools/ping", data={"host": "x"}).status_code == 400  # ohne CSRF
+    r = client.post("/werkzeuge/wol", data={"action": "add", "name": "Büro-PC", "mac": "00:11:22:33:44:55",
+                                            "csrf_token": tok})
+    assert st.load()["tools"]["wol"][0]["mac"] == "00:11:22:33:44:55"
+    assert "Büro-PC" in client.get("/werkzeuge").text
+    client.post("/werkzeuge/wol", data={"action": "delete", "mac": "00:11:22:33:44:55", "csrf_token": tok})
+    assert st.load()["tools"]["wol"] == []
+    r = client.post("/werkzeuge/mitschnitt", data={"iface": "gibtsnicht", "seconds": "1", "csrf_token": tok})
+    assert r.status_code == 302
+    r = client.post("/status/trennen", data={"user": "test", "csrf_token": tok})
+    assert r.status_code == 302
+    del _json

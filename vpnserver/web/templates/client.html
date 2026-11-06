@@ -2,7 +2,7 @@
 {% from "_macros.html" import csrf, kv %}
 {% block title %}{{ c.name }}{% endblock %}
 {% block content %}
-<div class="row"><h1 style="margin:0">{{ c.name }}</h1>
+<div class="title-row"><h1>{{ c.name }}</h1>
   {% if not c.enabled %}<span class="badge err">gesperrt</span>{% endif %}
   <span class="right"><a href="{{ url_for('clients') }}">← alle Clients</a></span>
 </div>
@@ -18,10 +18,10 @@
       <input type="hidden" name="action" value="share"><button class="btn secondary" type="submit">Teilen-Link fürs Handy</button></form>
   </div>
   {% if share_url %}
-  <div class="infobox" style="margin-top:1rem">
-    <div class="row" style="align-items:flex-start">
+  <div class="infobox mt-1">
+    <div class="row top-align">
       <div class="qr small">{{ share_qr | safe }}</div>
-      <div style="flex:1;min-width:240px">
+      <div class="minw-240">
         <strong>Teilen-Link (24 Stunden gültig)</strong>
         <p>Scannen Sie den QR-Code mit der Kamera des Geräts, um Profile und Anleitung direkt dort herunterzuladen. Der Link funktioniert nur im Heimnetz{% if state.server.webui_public %} und aus dem Internet{% endif %}.</p>
         <p><code>{{ share_url }}</code> <button type="button" class="copy" data-copy="{{ share_url }}">kopieren</button></p>
@@ -76,7 +76,7 @@
   </div>
   <div class="panel danger-zone">
     <h2>Verwaltung</h2>
-    <div class="actions" style="flex-direction:column;align-items:flex-start">
+    <div class="actions col">
       <form method="post" action="{{ url_for('client_action', name=c.name) }}" class="inline-form" data-confirm="{{ 'Client sperren? Alle Verbindungen werden getrennt, das Zertifikat wird widerrufen.' if c.enabled else 'Client entsperren?' }}">{{ csrf() }}
         <input type="hidden" name="action" value="toggle"><button class="btn secondary" type="submit">{{ 'Sperren' if c.enabled else 'Entsperren' }}</button></form>
       <form method="post" action="{{ url_for('client_action', name=c.name) }}" class="inline-form" data-confirm="Neuen IKEv2-PSK erzeugen?">{{ csrf() }}

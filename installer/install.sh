@@ -76,6 +76,8 @@ PACKAGES=(
   freeradius freeradius-utils
   # System
   nftables iproute2 kmod openssl ca-certificates curl sudo avahi-daemon
+  # Diagnose-Werkzeuge der Weboberflaeche
+  iputils-ping traceroute bind9-dnsutils tcpdump
   unattended-upgrades certbot
   # Weboberflaeche
   python3 python3-flask python3-jinja2 python3-qrcode python3-cryptography python3-gunicorn

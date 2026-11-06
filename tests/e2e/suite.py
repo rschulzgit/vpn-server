@@ -1249,6 +1249,59 @@ def t_firewall():
 
 
 # =============================================================================
+# 7b. Statistik und Werkzeuge der Weboberflaeche
+# =============================================================================
+
+@test("Statistik", "Durchsatz live, Datenvolumen je Client und Verbindungsprotokoll werden erfasst")
+def t_stats():
+    write("traffic.bin", os.urandom(8 * 1024 * 1024), 0o644)
+    r = wg_up(PROFILES[("e2e", "wireguard")].decode())
+    check(r.returncode == 0, f"wg-quick: {r.stderr[-300:]}")
+    check(wait_until(lan_ok, 20, 2), "Heimnetz nicht erreichbar")
+    time.sleep(12)  # die Statistik erfasst Verbindungen alle 10 s
+    for _ in range(3):
+        nsx(f"curl -s --noproxy '*' --max-time 30 -o /dev/null {LAN_URL}traffic.bin", timeout=40)
+
+    def live_rate():
+        pts = W.req("/api/live")[2]
+        data = json.loads(pts)
+        return max((p[1] for p in data.get("points", [])), default=0)
+    check(wait_until(lambda: live_rate() > 100_000, 30, 3), "Kein Durchsatz in der Live-Anzeige")
+
+    def client_volume():
+        data = json.loads(W.req("/api/history?range=24h")[2])
+        for c in data.get("clients", []):
+            if c["name"] == "e2e":
+                return c["down"]
+        return 0
+    check(wait_until(lambda: client_volume() > 8_000_000, 90, 5),
+          f"Datenvolumen für e2e fehlt (gemessen: {client_volume()} Bytes)")
+    events = json.loads(W.req("/api/events?limit=50")[2])["events"]
+    check(any(e["type"] == "connect" and e["user"] == "e2e" for e in events), "Anmeldung nicht im Verbindungsprotokoll")
+    for page in ("/", "/statistik", "/status"):
+        code, _u, raw = W.req(page)
+        check(code == 200, f"{page}: {code}")
+    return f"(live {live_rate() * 8 / 1e6:.1f} Mbit/s, e2e {client_volume() / 1e6:.0f} MB)"
+
+
+@test("Werkzeuge", "Ping, DNS-Abfrage, Wake-on-LAN und Paketmitschnitt in der Weboberfläche")
+def t_tools():
+    code, _u, raw = W.req("/api/tools/ping", {"host": "10.0.2.2", "count": "2"})
+    out = json.loads(raw)["output"]
+    check(code == 200 and re.search(r" 0% packet loss", out), f"Ping: {out[-300:]}")
+    code, _u, raw = W.req("/api/tools/dns", {"name": "debian.org", "type": "A", "server": ""})
+    out = json.loads(raw)["output"]
+    check(code == 200 and re.search(r"debian\.org\.\s+\d+\s+IN\s+A\s+\d+\.", out), f"DNS: {out[-300:]}")
+    code, _u, raw = W.req("/api/tools/ping", {"host": "10.0.2.2; reboot"})
+    check(code == 400, "Ungültige Eingabe nicht abgewiesen")
+    code, _u, raw = W.req("/api/tools/wol", {"mac": "52:54:00:12:34:56"})
+    check(code == 200 and "gesendet" in json.loads(raw)["output"], f"WoL: {raw[-200:]}")
+    code, _u, raw = W.req("/werkzeuge/mitschnitt", {"iface": "any", "seconds": "2", "filter": "icmp"})
+    check(code == 200 and raw[:4] in (b"\xd4\xc3\xb2\xa1", b"\xa1\xb2\xc3\xd4"), f"Mitschnitt: {code} {raw[:80]!r}")
+    return f"(Mitschnitt {len(raw)} Bytes)"
+
+
+# =============================================================================
 # 8. RADIUS-Anmeldung und VLAN-Zuweisung (wie beim WLAN-Controller)
 # =============================================================================
 #

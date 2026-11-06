@@ -11,7 +11,7 @@
     <div class="grid-2">
       <div>
         <label for="public_host">Öffentliche Adresse (DNS-Name oder IP)</label>
-        <div class="row"><input id="public_host" name="public_host" type="text" style="flex:1" value="{{ state.server.public_host }}" required>
+        <div class="row"><input id="public_host" name="public_host" type="text" class="flex-1" value="{{ state.server.public_host }}" required>
           <button type="button" class="btn secondary" data-detect-ip="public_host">IP ermitteln</button></div>
         <p class="hint">Wird in alle Profile eingetragen. Nach einer Änderung müssen die Profile neu verteilt werden.</p>
       </div>
@@ -45,17 +45,17 @@
       <thead><tr><th>Aktiv</th><th>Protokoll</th><th>Port(s)</th><th>Hinweis</th></tr></thead>
       <tbody>
         <tr><td><input type="checkbox" name="wireguard_enabled" value="1" {{ 'checked' if pr.wireguard.enabled }}></td><td>WireGuard</td>
-          <td>UDP <input type="number" name="wireguard_port" value="{{ pr.wireguard.port }}" min="1" max="65535" style="width:7rem"></td><td>empfohlen</td></tr>
+          <td>UDP <input type="number" name="wireguard_port" value="{{ pr.wireguard.port }}" min="1" max="65535" class="port"></td><td>empfohlen</td></tr>
         <tr><td><input type="checkbox" name="openvpn_enabled" value="1" {{ 'checked' if pr.openvpn.enabled }}></td><td>OpenVPN</td>
-          <td><label class="inline"><input type="checkbox" name="openvpn_udp" value="1" {{ 'checked' if pr.openvpn.udp }}> UDP <input type="number" name="openvpn_udp_port" value="{{ pr.openvpn.udp_port }}" style="width:7rem"></label>
-              <label class="inline"><input type="checkbox" name="openvpn_tcp" value="1" {{ 'checked' if pr.openvpn.tcp }}> TCP <input type="number" name="openvpn_tcp_port" value="{{ pr.openvpn.tcp_port }}" style="width:7rem"></label></td><td></td></tr>
+          <td><label class="inline"><input type="checkbox" name="openvpn_udp" value="1" {{ 'checked' if pr.openvpn.udp }}> UDP <input type="number" name="openvpn_udp_port" value="{{ pr.openvpn.udp_port }}" class="port"></label>
+              <label class="inline"><input type="checkbox" name="openvpn_tcp" value="1" {{ 'checked' if pr.openvpn.tcp }}> TCP <input type="number" name="openvpn_tcp_port" value="{{ pr.openvpn.tcp_port }}" class="port"></label></td><td></td></tr>
         <tr><td><input type="checkbox" name="ikev2_enabled" value="1" {{ 'checked' if pr.ikev2.enabled }}></td><td>IKEv2/IPsec</td><td>UDP 500, 4500</td><td>Android, iOS, macOS, Windows ohne App</td></tr>
         <tr><td><input type="checkbox" name="l2tp_enabled" value="1" {{ 'checked' if pr.l2tp.enabled }}></td><td>L2TP/IPsec</td><td>UDP 500, 4500</td><td>älter</td></tr>
         <tr><td><input type="checkbox" name="ikev1_xauth_enabled" value="1" {{ 'checked' if pr.ikev1_xauth.enabled }}></td><td>Cisco IPsec (IKEv1 XAuth)</td><td>UDP 500, 4500</td><td>iOS/macOS „IPsec“</td></tr>
         <tr><td><input type="checkbox" name="sstp_enabled" value="1" {{ 'checked' if pr.sstp.enabled }}></td><td>SSTP</td>
-          <td>TCP <input type="number" name="sstp_port" value="{{ pr.sstp.port }}" style="width:7rem"></td><td>Windows; 443 empfohlen</td></tr>
+          <td>TCP <input type="number" name="sstp_port" value="{{ pr.sstp.port }}" class="port"></td><td>Windows; 443 empfohlen</td></tr>
         <tr><td><input type="checkbox" name="openconnect_enabled" value="1" {{ 'checked' if pr.openconnect.enabled }}></td><td>OpenConnect / AnyConnect</td>
-          <td>TCP+UDP <input type="number" name="openconnect_port" value="{{ pr.openconnect.port }}" style="width:7rem"></td><td></td></tr>
+          <td>TCP+UDP <input type="number" name="openconnect_port" value="{{ pr.openconnect.port }}" class="port"></td><td></td></tr>
         <tr><td><input type="checkbox" name="pptp_enabled" value="1" {{ 'checked' if pr.pptp.enabled }}></td><td>PPTP</td><td>TCP 1723 + GRE</td><td><span class="badge err">unsicher</span></td></tr>
       </tbody>
     </table></div>
@@ -90,8 +90,8 @@
       {% for i in [1, 2] %}{% set srv = r.servers[i - 1] if r.servers | length >= i else {} %}
         <tr><td>{{ 'Server' if i == 1 else 'Ausweich-Server' }}</td>
           <td><input type="text" name="host{{ i }}" value="{{ srv.host or '' }}" placeholder="{{ '192.168.1.10' if i == 1 else 'optional' }}"></td>
-          <td><input type="number" name="auth_port{{ i }}" value="{{ srv.auth_port or 1812 }}" min="1" max="65535" style="width:7rem"></td>
-          <td><input type="number" name="acct_port{{ i }}" value="{{ srv.acct_port or 1813 }}" min="1" max="65535" style="width:7rem"></td>
+          <td><input type="number" name="auth_port{{ i }}" value="{{ srv.auth_port or 1812 }}" min="1" max="65535" class="port"></td>
+          <td><input type="number" name="acct_port{{ i }}" value="{{ srv.acct_port or 1813 }}" min="1" max="65535" class="port"></td>
           <td><input type="password" name="secret{{ i }}" autocomplete="new-password" placeholder="{{ 'gespeichert' if srv.secret else '' }}"></td></tr>
       {% endfor %}
       </tbody>
@@ -208,7 +208,7 @@
   <p>Gemeinsamer Schlüssel für IKEv1-Verbindungen. IKEv2 nutzt pro Client eigene Schlüssel.</p>
   <form method="post">{{ csrf() }}<input type="hidden" name="section" value="ipsec">
     <label for="ipsec_psk">Pre-Shared Key</label>
-    <div class="row"><input id="ipsec_psk" name="ipsec_psk" type="text" style="flex:1" value="{{ pr.ipsec_psk }}">
+    <div class="row"><input id="ipsec_psk" name="ipsec_psk" type="text" class="flex-1" value="{{ pr.ipsec_psk }}">
       <button type="button" class="copy" data-target="ipsec_psk">kopieren</button></div>
     <div class="actions">
       <button class="btn" type="submit">Speichern</button>

@@ -102,6 +102,7 @@ def default_state() -> dict:
             "local_secret": "",     # Geheimnis zwischen den VPN-Diensten und dem lokalen RADIUS
         },
         "vlans": {},
+        "tools": {"wol": []},
         "clients": {},
         "shares": {},
     }

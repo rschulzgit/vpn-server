@@ -33,6 +33,18 @@ table inet vpnserver {
     }
 {% endif %}
 
+    # Verkehrszaehler fuer die Statistik (Download = zu den Clients)
+    counter vpn_up {
+    }
+    counter vpn_down {
+    }
+{% for v in vlans %}
+    counter vlan{{ v.id }}_up {
+    }
+    counter vlan{{ v.id }}_down {
+    }
+{% endfor %}
+
     set private_nets {
         type ipv4_addr
         flags interval
@@ -126,6 +138,13 @@ table inet vpnserver {
 
     chain forward {
         type filter hook forward priority filter; policy drop;
+
+        ip saddr @vpn_nets counter name "vpn_up"
+        ip daddr @vpn_nets counter name "vpn_down"
+{% for v in vlans %}
+        ip saddr @vlan{{ v.id }}_src counter name "vlan{{ v.id }}_up"
+        ip daddr @vlan{{ v.id }}_src counter name "vlan{{ v.id }}_down"
+{% endfor %}
 
         # MSS an die Pfad-MTU anpassen (verhindert haengende Verbindungen)
         tcp flags syn / syn,rst tcp option maxseg size set rt mtu

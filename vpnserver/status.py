@@ -16,6 +16,7 @@ UNITS = [
     ("ppp", "accel-ppp (L2TP, SSTP, PPTP)", "accel-ppp.service"),
     ("openconnect", "OpenConnect (ocserv)", "ocserv.service"),
     ("radius", "RADIUS (lokaler Dienst)", "vpn-radius.service"),
+    ("stats", "Statistik", "vpn-stats.service"),
     ("firewall", "Firewall (nftables)", "nftables.service"),
 ]
 
@@ -30,6 +31,13 @@ def _fmt_bytes(n) -> str:
             return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
         n /= 1024
     return f"{n:.1f} PiB"
+
+
+def _int(value) -> int:
+    try:
+        return int(float(str(value).strip()))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _ago(seconds: float) -> str:
@@ -50,6 +58,7 @@ def unit_states(state: dict) -> list[dict]:
         "ppp": st.any_ppp(state),
         "openconnect": st.enabled(state, "openconnect"),
         "radius": vlan.radius_mode(state),
+        "stats": True,
         "firewall": True,
     }
     ov = state["proto"]["openvpn"]
@@ -91,6 +100,7 @@ def wireguard_sessions(state: dict) -> list[dict]:
         out.append({"proto": "WireGuard", "user": by_key.get(pub, pub[:10] + "..."),
                     "remote": endpoint, "vip": allowed.split("/")[0],
                     "rx": _fmt_bytes(rx), "tx": _fmt_bytes(tx),
+                    "rx_bytes": _int(rx), "tx_bytes": _int(tx), "sid": f"wg:{pub}",
                     "since": f"Handshake vor {_ago(now - hs)}"})
     return out
 
@@ -115,6 +125,9 @@ def openvpn_sessions() -> list[dict]:
                             "vip": row.get("Virtual Address", ""),
                             "rx": _fmt_bytes(row.get("Bytes Received")),
                             "tx": _fmt_bytes(row.get("Bytes Sent")),
+                            "rx_bytes": _int(row.get("Bytes Received")),
+                            "tx_bytes": _int(row.get("Bytes Sent")),
+                            "sid": f"ovpn:{inst}:{row.get('Client ID', '')}:{since}",
                             "since": _ago(time.time() - int(since)) if since.isdigit() else ""})
     return out
 
@@ -180,12 +193,13 @@ def ipsec_display(sessions: list[dict]) -> list[dict]:
                                 else sa["conn"])
         out.append({"proto": label, "user": sa["user"], "remote": sa["remote"],
                     "vip": sa["vip"], "rx": _fmt_bytes(sa["rx"]), "tx": _fmt_bytes(sa["tx"]),
+                    "rx_bytes": sa["rx"], "tx_bytes": sa["tx"], "sid": f"ipsec:{sa['id']}",
                     "since": sa["since"]})
     return out
 
 
 def ppp_sessions() -> list[dict]:
-    cols = "ifname,username,ip,type,state,uptime,rx-bytes,tx-bytes,calling-sid"
+    cols = "ifname,username,ip,type,state,uptime,rx-bytes,tx-bytes,calling-sid,sid,rx-bytes-raw,tx-bytes-raw"
     res = util.run(["accel-cmd", "show", "sessions", cols])
     if res.returncode != 0:
         return []
@@ -201,6 +215,8 @@ def ppp_sessions() -> list[dict]:
         out.append({"proto": proto.upper() or "PPP", "user": row.get("username", ""),
                     "remote": row.get("calling-sid", ""), "vip": row.get("ip", ""),
                     "rx": row.get("rx-bytes", ""), "tx": row.get("tx-bytes", ""),
+                    "rx_bytes": _int(row.get("rx-bytes-raw")), "tx_bytes": _int(row.get("tx-bytes-raw")),
+                    "sid": f"ppp:{row.get('sid') or ifname}",
                     "since": row.get("uptime", "")})
     return out
 
@@ -217,8 +233,10 @@ def openconnect_sessions() -> list[dict]:
     for u in users:
         out.append({"proto": "OpenConnect", "user": u.get("Username", ""),
                     "remote": u.get("Remote IP", ""), "vip": u.get("IPv4", ""),
-                    "rx": u.get("RX", ""), "tx": u.get("TX", ""),
-                    "since": u.get("_Connected at", u.get("Connected at", ""))})
+                    "rx": _fmt_bytes(u.get("RX")), "tx": _fmt_bytes(u.get("TX")),
+                    "rx_bytes": _int(u.get("RX")), "tx_bytes": _int(u.get("TX")),
+                    "sid": f"oc:{u.get('ID', '')}",
+                    "since": str(u.get("_Connected at", u.get("Connected at", ""))).strip()})
     return out
 
 

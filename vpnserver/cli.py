@@ -177,6 +177,11 @@ def cmd_ddns(args) -> None:
         print(result)
 
 
+def cmd_stats_daemon(_args) -> None:
+    from . import stats
+    stats.run_daemon()
+
+
 def cmd_issue(_args) -> None:
     system.write_issue(_load())
 
@@ -219,6 +224,8 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("status", help="Dienste und Verbindungen anzeigen").set_defaults(func=cmd_status)
     sub.add_parser("maintenance", help="Taegliche Wartung").set_defaults(func=cmd_maintenance)
     sub.add_parser("issue", help="Konsolen-Banner neu schreiben").set_defaults(func=cmd_issue)
+    sub.add_parser("stats-daemon", help="Verkehrsstatistik erfassen (vpn-stats.service)").set_defaults(
+        func=cmd_stats_daemon)
 
     p = sub.add_parser("ddns", help="DynDNS aktualisieren")
     p.add_argument("--force", action="store_true")

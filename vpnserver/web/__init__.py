@@ -13,7 +13,8 @@ import time
 from flask import (Flask, Response, abort, flash, g, jsonify, redirect, render_template,
                    request, session, url_for)
 
-from .. import __version__, apply as ap, pki, profiles, state as st, status, system, util, vlan
+from .. import (__version__, apply as ap, pki, profiles, state as st, stats, status, system, tools,
+               util, vlan)
 from ..state import PROTOCOL_LABELS, PROTOCOLS
 
 PUBLIC_ENDPOINTS = {"login", "static", "share", "share_download", "ca_download", "health"}
@@ -278,9 +279,145 @@ def create_app() -> Flask:
                 warnings.append(f"Dienst '{u['label']}' läuft nicht ({u['active']}). Details unter Status.")
         if system.reboot_required():
             warnings.append("Nach Systemupdates ist ein Neustart erforderlich (System -> Neustart).")
+        route = util.default_route_info()
         return render_template("dashboard.html", state=state, units=units, sessions=sessions,
-                               warnings=warnings, lan_ip=util.default_route_info().get("ip", ""),
-                               forwards=port_forwards(state))
+                               warnings=warnings, lan_ip=route.get("ip", ""),
+                               forwards=port_forwards(state), topo=_topology_info(state, route))
+
+    def _topology_info(state: dict, route: dict) -> dict:
+        nets = [{"key": "", "name": "Standardnetz",
+                 "detail": "Heimnetz " + ("erlaubt" if state["server"].get("lan_access", True)
+                                          else "gesperrt")}]
+        for v in vlan.vlans(state):
+            nets.append({"key": str(v["id"]), "name": f"VLAN {v['id']} · {v['name']}",
+                         "detail": v["address"].split("/")[0] + (f" · Gateway {v['gateway']}"
+                                                                if v.get("gateway") else "")})
+        public_ip = (util.read_file(stats.PUBLIC_IP_FILE) or "").strip()
+        return {"server": state["server"].get("name") or "VPN-Server",
+                "host": state["server"].get("public_host", ""), "public_ip": public_ip,
+                "lan_ip": route.get("ip", ""), "gateway": route.get("gateway", ""),
+                "radius": bool(state["radius"].get("enabled")), "nets": nets}
+
+    # ------------------------------------------------------------------
+    # Statistik-APIs (lesen nur die Dateien von vpn-stats.service)
+    # ------------------------------------------------------------------
+
+    @app.route("/api/live")
+    def api_live():
+        state = get_state()
+        data = stats.live()
+        sessions = data.get("sessions") or []
+        if data.get("stale") and not util.DRYRUN:
+            sessions = status.all_sessions(state)
+        for sess in sessions:
+            v = vlan.vlan_of_ip(state, str(sess.get("vip", "")).split("/")[0])
+            sess["net"] = str(v["id"]) if v else ""
+        units = status.unit_states(state)
+        bad = [u["label"] for u in units if u["wanted"] and u["active"] not in ("active", "unbekannt")]
+        return jsonify(points=data["points"], cpu=data["cpu"], system=data["system"],
+                       sessions=sessions, interval=data.get("interval", 2),
+                       stale=bool(data.get("stale")), problems=bad,
+                       today=stats.today_volume())
+
+    @app.route("/api/history")
+    def api_history():
+        state = get_state()
+        rng = request.args.get("range", "24h")
+        data = stats.history(rng if rng in stats.RANGES else "24h")
+        names = {str(v["id"]): f"VLAN {v['id']} · {v['name']}" for v in vlan.vlans(state)}
+        data["vlan_names"] = names
+        for c in data["clients"]:
+            c["radius"] = c["name"] not in state["clients"]
+        return jsonify(data)
+
+    @app.route("/api/events")
+    def api_events():
+        try:
+            limit = max(1, min(int(request.args.get("limit", 100)), 1000))
+        except ValueError:
+            limit = 100
+        return jsonify(events=stats.events(limit))
+
+    # ------------------------------------------------------------------
+    # Statistik und Werkzeuge
+    # ------------------------------------------------------------------
+
+    @app.route("/statistik")
+    def statistics_page():
+        state = get_state()
+        return render_template("statistics.html", state=state, vlans=vlan.vlans(state))
+
+    @app.route("/werkzeuge")
+    def tools_page():
+        state = get_state()
+        return render_template("tools.html", state=state, interfaces=tools.capture_interfaces(),
+                               wol=state.get("tools", {}).get("wol", []), dns_types=tools.DNS_TYPES)
+
+    @app.route("/api/tools/<name>", methods=["POST"])
+    def api_tool(name: str):
+        form = request.form
+        try:
+            if name == "ping":
+                return jsonify(ok=True, output=tools.ping(form.get("host", ""), form.get("count", 4)))
+            if name == "traceroute":
+                return jsonify(ok=True, output=tools.traceroute(form.get("host", "")))
+            if name == "dns":
+                return jsonify(ok=True, output=tools.dns(form.get("name", ""), form.get("type", "A"),
+                                                         form.get("server", "")))
+            if name == "speedtest":
+                return jsonify(ok=True, result=tools.speedtest())
+            if name == "wol":
+                return jsonify(ok=True, output=tools.wake(form.get("mac", "")))
+        except tools.ToolError as exc:
+            return jsonify(ok=False, output=str(exc)), 400
+        except OSError as exc:
+            return jsonify(ok=False, output=f"Fehler: {exc}"), 502
+        abort(404)
+
+    @app.route("/werkzeuge/wol", methods=["POST"])
+    def tools_wol_devices():
+        action = request.form.get("action", "")
+        try:
+            def do(s):
+                devices = s.setdefault("tools", {}).setdefault("wol", [])
+                if action == "add":
+                    name = request.form.get("name", "").strip()[:40] or "Gerät"
+                    mac = tools.normalize_mac(request.form.get("mac", ""))
+                    if any(d["mac"] == mac for d in devices):
+                        raise tools.ToolError("Dieses Gerät ist bereits gespeichert.")
+                    devices.append({"name": name, "mac": mac})
+                elif action == "delete":
+                    mac = request.form.get("mac", "")
+                    s["tools"]["wol"] = [d for d in devices if d["mac"] != mac]
+            with st.locked():
+                s = st.load()
+                do(s)
+                st.save(s)
+            flash("Gespeichert.", "ok")
+        except tools.ToolError as exc:
+            flash(str(exc), "error")
+        return redirect(url_for("tools_page") + "#wol")
+
+    @app.route("/werkzeuge/mitschnitt", methods=["POST"])
+    def tools_capture():
+        try:
+            data = tools.capture(request.form.get("iface", "any"), request.form.get("seconds", 10),
+                                 request.form.get("filter", ""))
+        except (tools.ToolError, ValueError) as exc:
+            flash(str(exc), "error")
+            return redirect(url_for("tools_page") + "#capture")
+        fname = f"mitschnitt-{dt.datetime.now().strftime('%Y%m%d-%H%M%S')}.pcap"
+        return Response(data, mimetype="application/vnd.tcpdump.pcap",
+                        headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+    @app.route("/status/trennen", methods=["POST"])
+    def status_disconnect():
+        user = request.form.get("user", "").strip()
+        if not user or len(user) > 128:
+            abort(400)
+        ap.disconnect_client(user)
+        flash(f"Verbindungen von „{user}“ getrennt.", "ok")
+        return redirect(url_for("status_page"))
 
     # ------------------------------------------------------------------
     # Clients
