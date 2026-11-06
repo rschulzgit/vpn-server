@@ -165,7 +165,9 @@ automatisch getestet (`tests/e2e/`):
 - **Funktionen:** Client-zu-Client, Heimnetz-Sperre, Protokolle an/aus, Passwortwechsel,
   Sperren/Entsperren, Schlüssel erneuern, Löschen, Teilen-Link, Sicherung, `vpnctl`, Neustart
 
-Ein Tag `v*` veröffentlicht das ISO als Release – nur wenn alle Tests bestanden sind.
+Ein Tag `v*` veröffentlicht das ISO als Release – nur wenn alle Tests bestanden sind. Alternativ:
+*Actions → ISO bauen und testen → Run workflow* mit `release_tag` (z. B. `v1.0.0`) und optional
+dem zu veröffentlichenden `commit`.
 
 Lokal (Debian/Ubuntu mit Internetzugang):
 
