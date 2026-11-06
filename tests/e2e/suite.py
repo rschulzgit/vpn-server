@@ -1567,9 +1567,15 @@ def vlan30_lease() -> str:
 def t_vlan_dhcp():
     r = remote("ip -o link | grep -i '52:54:00:00:99:01' | awk -F': ' '{print $2}'")
     nic = r.stdout.strip().split("@")[0]
-    W.settings("vlan-save", {"id": "30", "name": "Büro", "parent": nic, "mode": "dhcp", "dhcp_gateway": "1"})
-    check(wait_until(lambda: bool(vlan30_lease()), 60, 3), "Keine DHCP-Adresse: " + remote(
-        "ip -4 addr show dev vlan30; systemctl status vpn-vlan-dhcp@vlan30 --no-pager -l | tail -15").stdout[-900:])
+    flashes = W.settings("vlan-save", {"id": "30", "name": "Büro", "parent": nic, "mode": "dhcp",
+                                       "dhcp_gateway": "1"})
+    check(any("VLAN 30" in f and "gespeichert" in f for f in flashes), f"VLAN 30 nicht gespeichert: {flashes}")
+    if not wait_until(lambda: bool(vlan30_lease()), 60, 3):
+        diag = remote("ip -d addr show dev vlan30 2>&1; systemctl status vpn-vlan-dhcp@vlan30 --no-pager -l 2>&1 | head -12; "
+                      "journalctl -u vpn-vlan-dhcp@vlan30 --no-pager -n 25 2>&1; systemctl list-jobs --no-pager 2>&1 | head; "
+                      "ls -l /usr/local/lib/vpn-server/udhcpc-hook /bin/busybox 2>&1; "
+                      "cat /var/lib/vpn-server/vlan-dhcp/vlan30.json 2>&1").stdout
+        check(False, f"Keine DHCP-Adresse: {diag[-2500:]} | dnsmasq: {tail('dnsmasq-vlan30.log', 15)}")
     ip = vlan30_lease()
     page = W.req("/settings/vlans")[2].decode(errors="replace")
     check(f"{ip}/24" in page and "192.168.30.1" in page, "Adresse/Gateway nicht in der Weboberfläche")
@@ -1810,7 +1816,9 @@ def t_rad_after_reboot():
           "Keine Verbindung: " + tail("oc-reboot.log"))
     errors = vlan_checks(10, 20)
     check(not errors, ", ".join(errors))
-    check(wait_until(lambda: bool(vlan30_lease()), 60, 3), "VLAN 30: nach dem Neustart keine DHCP-Adresse")
+    check(wait_until(lambda: bool(vlan30_lease()), 60, 3), "VLAN 30: nach dem Neustart keine DHCP-Adresse: " + remote(
+        "systemctl status vpn-vlan-dhcp@vlan30 --no-pager -l 2>&1 | head -12; "
+        "journalctl -u vpn-vlan-dhcp@vlan30 -b --no-pager -n 15 2>&1").stdout[-1500:])
 
 
 # =============================================================================
