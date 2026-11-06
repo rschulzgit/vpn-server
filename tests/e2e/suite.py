@@ -478,8 +478,13 @@ def t_p12():
     check("pbeWithSHA1And3-KeyTripleDES-CBC" in r.stdout, f"Unerwartete P12-Verschlüsselung: {r.stdout[:300]}")
     r = sh(f"openssl pkcs12 -in {p12} -nokeys -passin pass:{pw} | openssl x509 -noout -subject -ext subjectAltName")
     check("CN=e2e" in r.stdout.replace(" ", "") and "DNS:e2e" in r.stdout, f"Client-Zertifikat: {r.stdout}")
-    r = sh(f"openssl pkcs12 -in {p12} -cacerts -nokeys -passin pass:{pw} | grep -c BEGIN")
-    check(r.stdout.strip() == "1", "CA-Zertifikat fehlt im P12")
+    r = sh(f"openssl pkcs12 -in {p12} -nokeys -passin pass:{pw}")
+    blocks = ["".join(b.split()) for b in
+              re.findall(r"-----BEGIN CERTIFICATE-----(.*?)-----END CERTIFICATE-----", r.stdout, re.S)]
+    ca_body = "".join(re.search(r"-----BEGIN CERTIFICATE-----(.*?)-----END CERTIFICATE-----",
+                                PROFILES[("e2e", "ca")].decode(), re.S).group(1).split())
+    check(ca_body in blocks, f"CA-Zertifikat fehlt im P12 ({len(blocks)} Zertifikate enthalten)")
+    check(len(blocks) == 2, f"{len(blocks)} Zertifikate im P12 (erwartet: Client + CA)")
 
 
 @test("Profile", "Apple-Profil (.mobileconfig) für iPhone/iPad/Mac")
