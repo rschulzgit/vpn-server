@@ -85,7 +85,7 @@
     {% set r = state.radius %}
     <label class="inline"><input type="checkbox" name="enabled" value="1" {{ 'checked' if r.enabled }}> Externen RADIUS-Server verwenden</label>
     <div class="table-wrap"><table>
-      <thead><tr><th></th><th>Adresse</th><th>Auth-Port</th><th>Accounting-Port</th><th>Gemeinsames Geheimnis</th></tr></thead>
+      <thead><tr><th></th><th>IP-Adresse</th><th>Auth-Port</th><th>Accounting-Port</th><th>Gemeinsames Geheimnis</th></tr></thead>
       <tbody>
       {% for i in [1, 2] %}{% set srv = r.servers[i - 1] if r.servers | length >= i else {} %}
         <tr><td>{{ 'Server' if i == 1 else 'Ausweich-Server' }}</td>

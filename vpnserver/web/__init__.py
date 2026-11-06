@@ -751,8 +751,10 @@ def create_app() -> Flask:
             host = form.get(f"host{i}", "").strip()
             if not host:
                 continue
-            if not util.valid_host(host):
-                raise ValueError(f"Ungültige Adresse des RADIUS-Servers: {host}")
+            if not util.is_ip(host):
+                # FreeRADIUS loest Namen nur beim Start auf; ein nicht aufloesbarer Name
+                # wuerde auch die Anmeldung lokaler Benutzer verhindern
+                raise ValueError(f"Bitte die IP-Adresse des RADIUS-Servers angeben (nicht „{host}“).")
             ports = []
             for key, default in ((f"auth_port{i}", 1812), (f"acct_port{i}", 1813)):
                 value = form.get(key, "").strip() or str(default)
