@@ -1452,9 +1452,8 @@ def in_net(ip: str, net: str) -> bool:
 
 @test("RADIUS / VLAN", "VLANs anlegen: Trunk mit VLAN 10 (mit Gateway) und VLAN 20 (ohne)")
 def t_vlan_setup():
-    r = remote("ip -o link | grep -i '52:54:00:00:99:01' | awk -F': ' '{print $2}'")
-    nic = r.stdout.strip().split("@")[0]
-    check(nic, f"Trunk-Netzwerkkarte nicht gefunden: {r.stdout} {r.stderr[-200:]}")
+    nic = trunk_nic()
+    check(nic, "Trunk-Netzwerkkarte nicht gefunden")
     _c, _u, raw = W.req("/settings/vlans")
     check(f'value="{nic}"' in raw.decode(errors="replace"), f"{nic} nicht in der Schnittstellenauswahl")
     W.settings("vlan-save", {"id": "10", "name": "Gäste", "parent": nic, "address": "192.168.10.2/24",
@@ -1556,6 +1555,14 @@ def t_vlan_ikev2_cert():
     return f"({vip})"
 
 
+def trunk_nic() -> str:
+    """Zweite Netzwerkkarte des Servers (VLAN-Trunk). Die VLAN-Schnittstellen darauf haben
+    dieselbe MAC-Adresse (z. B. "vlan10@enp0s9") und werden uebersprungen."""
+    r = remote("ip -o link | grep -i '52:54:00:00:99:01' | awk -F': ' '{print $2}'")
+    names = [n.strip() for n in r.stdout.splitlines() if n.strip() and "@" not in n]
+    return names[0] if names else ""
+
+
 def vlan30_lease() -> str:
     """Per DHCP bezogene Adresse des Servers im VLAN 30 ("" = keine)."""
     out = remote("ip -4 -o addr show dev vlan30").stdout
@@ -1565,8 +1572,7 @@ def vlan30_lease() -> str:
 
 @test("RADIUS / VLAN", "VLAN 30 mit Adresse per DHCP: Server bezieht Adresse und Gateway, Client erreicht das VLAN")
 def t_vlan_dhcp():
-    r = remote("ip -o link | grep -i '52:54:00:00:99:01' | awk -F': ' '{print $2}'")
-    nic = r.stdout.strip().split("@")[0]
+    nic = trunk_nic()
     flashes = W.settings("vlan-save", {"id": "30", "name": "Büro", "parent": nic, "mode": "dhcp",
                                        "dhcp_gateway": "1"})
     check(any("VLAN 30" in f and "gespeichert" in f for f in flashes), f"VLAN 30 nicht gespeichert: {flashes}")
