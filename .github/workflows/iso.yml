@@ -30,7 +30,8 @@ permissions:
 
 concurrency:
   group: iso-${{ github.ref }}
-  cancel-in-progress: true
+  # Laufende Testlaeufe nicht abbrechen; der neueste Stand wartet und laeuft danach
+  cancel-in-progress: false
 
 jobs:
   iso:
