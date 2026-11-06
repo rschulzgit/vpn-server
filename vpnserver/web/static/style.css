@@ -157,4 +157,8 @@ footer { text-align: center; color: var(--muted); font-size: .85rem; padding: 1r
   .nav a.item { padding: .8rem .1rem; }
   .nav .spacer { display: none; }
   main { padding-top: 16px; }
+  /* Protokoll-Reiter: eine wischbare Zeile statt mehrerer umbrochener Zeilen */
+  .tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tabs button { white-space: nowrap; padding: .55rem .7rem; flex: 0 0 auto; }
 }
